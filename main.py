@@ -1,6 +1,7 @@
 import os
 import pickle
 
+from dotenv import load_dotenv
 import numpy as np
 from skimage import io
 import torch
@@ -12,6 +13,7 @@ from models.model import BasicNSA
 from models.datasets import SADataset
 from models.utils import get_parameter_count
 
+load_dotenv()
 
 def load_image_infer(im_path):
     feature = io.imread(im_path)[:,:,:3]
@@ -34,7 +36,16 @@ def main():
     dataset = SADataset(base_path, data)
     row_length = len(dataset[0]['label'][0])
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-    model = BasicNSA(row_len=row_length, dim=512, patch_size=16, e_depth = 6, e_heads = 8, d_depth = 12, d_heads = 16, emb_dropout=0.1).to(device)
+    model = BasicNSA(
+        row_len=row_length,
+        dim= int(os.getenv('DIM', 128)),
+        patch_size= int(os.getenv('PATCH_SIZE', 32)),
+        e_depth = int(os.getenv('E_DEPTH', 6)),
+        e_heads = int(os.getenv('E_HEADS', 8)),
+        d_depth = int(os.getenv('D_DEPTH', 6)),
+        d_heads = int(os.getenv('D_HEADS', 8)),
+        emb_dropout= float(os.getenv('EMB_DROP', 0.1))
+    ).to(device)
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
