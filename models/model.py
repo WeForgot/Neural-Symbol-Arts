@@ -90,8 +90,6 @@ class BasicNSA(nn.Module):
         while idx < 226:
             mask[:,idx] = 1
             x = self.decoder(out, context=src, mask=mask)[0,-1,:]
-            print(x.shape)
-            print(out.shape)
             out[0,idx,:] = x
             idx += 1
         return out

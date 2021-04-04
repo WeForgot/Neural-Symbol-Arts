@@ -52,7 +52,7 @@ def main():
         loss_func = lambda x: sum(x) / len(x)
     else:
         loss_func = lambda x: max(x)
-    with open('maintrain_metrics.csv', 'w') as f:
+    with open('train_metrics.csv', 'w') as f:
         for edx in range(1):
             losses = []
             for idx, i_batch in enumerate(dataloader):
@@ -82,6 +82,9 @@ def main():
                 print('Out of patience. Breaking')
                 break
     out = model.generate(load_image_infer('PleaseWork.png').to(device), 10)
+    out = out.to('cpu')
+    np.save('testing.npy', out[0].numpy())
+    print(out)
     model.load_state_dict(best_model)
     model.eval()
     torch.save(model.state_dict(), 'better_trained.pt')
