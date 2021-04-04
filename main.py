@@ -51,10 +51,11 @@ def main():
     print('Total paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
     opt = optim.AdamW(model.parameters(), lr=3e-4)
     lf = nn.L1Loss()
+    max_epochs = int(os.getenv('EPOCHS', 100))
     best_loss = None
     best_model = None
     batch_metrics = True
-    max_patience = 5
+    max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
     if criteria == 'sum':
