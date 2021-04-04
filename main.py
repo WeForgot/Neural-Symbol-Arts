@@ -34,7 +34,7 @@ def main():
     dataset = SADataset(base_path, data)
     row_length = len(dataset[0]['label'][0])
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-    model = BasicNSA(row_len=row_length, dim=32, patch_size=32, emb_dropout=0.1).to(device)
+    model = BasicNSA(row_len=row_length, dim=512, patch_size=16, e_depth = 6, e_heads = 8, d_depth = 12, d_heads = 16, emb_dropout=0.1).to(device)
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))

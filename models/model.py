@@ -48,7 +48,7 @@ class TransformerWrapper(nn.Module):
         return out
 
 class BasicNSA(nn.Module):
-    def __init__(self, row_len, dim = 128, patch_size=32, emb_dropout=0.):
+    def __init__(self, row_len, dim = 128, patch_size=32, e_depth = 6, e_heads = 8, d_depth = 6, d_heads = 8, emb_dropout=0.):
         super(BasicNSA, self).__init__()
         sa_size = (576, 288)
         saml_sz = (226, row_len) # 8 embeddings + 3 color channels + alpha + ltx + lty + tbx + lby + rtx + rty + rbx + rby
@@ -58,18 +58,18 @@ class BasicNSA(nn.Module):
             image_size = max(sa_size),
             patch_size = patch_size,
             attn_layers = Encoder(
-                dim = 512,
-                depth = 6,
-                heads = 8
+                dim = dim,
+                depth = e_depth,
+                heads = e_heads
             )
         )
 
         self.decoder = TransformerWrapper(
             max_seq_len = 226,
             attn_layers = Decoder(
-                dim = 512,
-                depth = 6,
-                heads = 8
+                dim = dim,
+                depth = d_depth,
+                heads = d_heads
             ),
             emb_dim=row_len
         )
