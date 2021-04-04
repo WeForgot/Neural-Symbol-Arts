@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<overlay-img src="https://malulleybovo.github.io/SymbolArtEditorOnline/images/tile.png" pos-x="960" pos-y="480" scale="1" rot="0" alpha="0.5" green-screen="false"/>
+<sa name="intel i7" visible="true" version="1" author="10129768" width="192" height="96" sound="2">
+	<layer name="Symbol 0" visible="true" type="8" color="#fca810" alpha="1" ltx="60" lty="-23" lbx="33" lby="-7" rtx="60" rty="45" rbx="33" rby="61"/>
+	<layer name="Symbol 1" visible="true" type="8" color="#fca810" alpha="1" ltx="101" lty="-19" lbx="48" lby="-19" rtx="101" rty="45" rbx="48" rby="45"/>
+	<layer name="Symbol 2" visible="true" type="8" color="#fca810" alpha="1" ltx="48" lty="-9" lbx="-57" lby="-9" rtx="48" rty="55" rbx="-57" rby="55"/>
+	<layer name="Symbol 3" visible="true" type="8" color="#fca810" alpha="1" ltx="-11" lty="-9" lbx="-117" lby="-9" rtx="-11" rty="55" rbx="-117" rby="55"/>
+	<layer name="Symbol 4" visible="true" type="37" color="#e8f0f4" alpha="1" ltx="16" lty="40" lbx="30" lby="40" rtx="16" rty="23" rbx="30" rby="23"/>
+	<layer name="Symbol 5" visible="true" type="75" color="#e8f0f4" alpha="1" ltx="15" lty="30" lbx="15" lby="48" rtx="34" rty="30" rbx="34" rby="48"/>
+	<layer name="Symbol 6" visible="true" type="34" color="#e8f0f4" alpha="1" ltx="3" lty="29" lbx="3" lby="51" rtx="22" rty="29" rbx="22" rby="51"/>
+	<layer name="Symbol 7" visible="true" type="271" color="#e8f0f4" alpha="1" ltx="-2" lty="-28" lbx="-2" lby="-24" rtx="3" rty="-28" rbx="3" rby="-24"/>
+	<layer name="Symbol 8" visible="true" type="17" color="#e8f0f4" alpha="1" ltx="-2" lty="-28" lbx="-2" lby="-24" rtx="3" rty="-28" rbx="3" rby="-24"/>
+	<layer name="Symbol 9" visible="true" type="12" color="#e8f0f4" alpha="1" ltx="71" lty="-11" lbx="71" lby="-5" rtx="78" rty="-11" rbx="78" rby="-5"/>
+	<layer name="Symbol 10" visible="true" type="12" color="#e8f0f4" alpha="1" ltx="0" lty="30" lbx="0" lby="36" rtx="7" rty="30" rbx="7" rby="36"/>
+	<layer name="Symbol 11" visible="true" type="19" color="#e8f0f4" alpha="1" ltx="66" lty="-11" lbx="66" lby="-5" rtx="73" rty="-11" rbx="73" rby="-5"/>
+	<layer name="Symbol 12" visible="true" type="19" color="#e8f0f4" alpha="1" ltx="-4" lty="30" lbx="-4" lby="36" rtx="3" rty="30" rbx="3" rby="36"/>
+	<layer name="Symbol 13" visible="true" type="4" color="#e8f0f4" alpha="1" ltx="-19" lty="29" lbx="-19" lby="49" rtx="0" rty="29" rbx="0" rby="49"/>
+	<layer name="Symbol 14" visible="true" type="17" color="#e8f0f4" alpha="1" ltx="-30" lty="29" lbx="-30" lby="49" rtx="-11" rty="29" rbx="-11" rby="49"/>
+	<layer name="Symbol 15" visible="true" type="14" color="#e8f0f4" alpha="1" ltx="-44" lty="29" lbx="-44" lby="49" rtx="-25" rty="29" rbx="-25" rby="49"/>
+	<layer name="Symbol 16" visible="true" type="2" color="#e8f0f4" alpha="1" ltx="-57" lty="29" lbx="-57" lby="49" rtx="-38" rty="29" rbx="-38" rby="49"/>
+	<layer name="Symbol 17" visible="true" type="37" color="#e8f0f4" alpha="1" ltx="-28" lty="-30" lbx="-28" lby="12" rtx="15" rty="-30" rbx="15" rby="12"/>
+	<layer name="Symbol 18" visible="true" type="30" color="#e8f0f4" alpha="1" ltx="-45" lty="-35" lbx="-50" lby="7" rtx="-2" rty="-29" rbx="-7" rby="13"/>
+	<layer name="Symbol 19" visible="true" type="45" color="#e8f0f4" alpha="1" ltx="-64" lty="-31" lbx="-64" lby="11" rtx="-22" rty="-31" rbx="-22" rby="11"/>
+	<layer name="Symbol 20" visible="true" type="39" color="#e8f0f4" alpha="1" ltx="-84" lty="-29" lbx="-84" lby="9" rtx="-42" rty="-29" rbx="-42" rby="9"/>
+	<layer name="Symbol 21" visible="true" type="34" color="#e8ecfc" alpha="1" ltx="-59" lty="-29" lbx="-59" lby="9" rtx="-99" rty="-29" rbx="-99" rby="9"/>
+	<layer name="Symbol 22" visible="true" type="30" color="#e8f0f4" alpha="1" ltx="52" lty="-12" lbx="48" lby="2" rtx="69" rty="-10" rbx="65" rby="4"/>
+	<layer name="Symbol 23" visible="true" type="29" color="#e8f0f4" alpha="1" ltx="41" lty="-12" lbx="39" lby="4" rtx="59" rty="-12" rbx="57" rby="4"/>
+	<layer name="Symbol 24" visible="true" type="34" color="#e8f0f4" alpha="1" ltx="35" lty="-12" lbx="33" lby="4" rtx="53" rty="-12" rbx="51" rby="4"/>
+	<layer name="Symbol 25" visible="true" type="44" color="#e8f0f4" alpha="1" ltx="28" lty="-12" lbx="26" lby="4" rtx="46" rty="-12" rbx="44" rby="4"/>
+	<layer name="Symbol 26" visible="true" type="39" color="#e8f0f4" alpha="1" ltx="17" lty="-12" lbx="15" lby="4" rtx="35" rty="-12" rbx="33" rby="4"/>
+	<layer name="Symbol 27" visible="true" type="34" color="#e8f0f4" alpha="1" ltx="28" lty="-12" lbx="26" lby="4" rtx="10" rty="-12" rbx="8" rby="4"/>
+	<layer name="Symbol 28" visible="true" type="335" color="#e8f0f4" alpha="1" ltx="15" lty="-46" lbx="15" lby="-8" rtx="-27" rty="-46" rbx="-27" rby="-8"/>
+	<layer name="Symbol 29" visible="true" type="345" color="#e8f0f4" alpha="1" ltx="28" lty="-14" lbx="5" lby="-32" rtx="6" rty="5" rbx="-17" rby="-13"/>
+	<layer name="Symbol 30" visible="true" type="347" color="#e8f0f4" alpha="1" ltx="-8" lty="-60" lbx="-3" lby="-39" rtx="-60" rty="-39" rbx="-55" rby="-18"/>
+	<layer name="Symbol 31" visible="true" type="347" color="#e8f0f4" alpha="1" ltx="-32" lty="-59" lbx="-25" lby="-43" rtx="-75" rty="-31" rbx="-68" rby="-15"/>
+	<layer name="Symbol 32" visible="true" type="345" color="#e8f0f4" alpha="1" ltx="-53" lty="-53" lbx="-46" lby="-39" rtx="-75" rty="-32" rbx="-68" rby="-18"/>
+	<layer name="Symbol 33" visible="true" type="345" color="#e8f0f4" alpha="1" ltx="-79" lty="48" lbx="-94" lby="9" rtx="-3" rty="18" rbx="-18" rby="-21"/>
+	<layer name="Symbol 34" visible="true" type="335" color="#e8f0f4" alpha="1" ltx="-100" lty="20" lbx="-100" lby="-18" rtx="-58" rty="20" rbx="-58" rby="-18"/>
+	<layer name="Symbol 35" visible="true" type="345" color="#e8f0f4" alpha="1" ltx="-107" lty="-10" lbx="-99" lby="2" rtx="-83" rty="-30" rbx="-75" rby="-18"/>
+	<layer name="Symbol 36" visible="true" type="242" color="#2014fc" alpha="1" ltx="-126" lty="-101" lbx="-126" lby="89" rtx="64" rty="-101" rbx="64" rby="89"/>
+	<layer name="Symbol 37" visible="true" type="242" color="#2014fc" alpha="1" ltx="-63" lty="-101" lbx="-63" lby="89" rtx="127" rty="-101" rbx="127" rby="89"/>
+</sa>

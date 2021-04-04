@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<overlay-img src="https://malulleybovo.github.io/SymbolArtEditorOnline/images/tile.png" pos-x="960" pos-y="480" scale="1" rot="0" alpha="0.5" green-screen="false"/>
+<sa name="アノニマス" visible="true" version="1" author="10161406" width="192" height="96" sound="12">
+	<layer name="Symbol 0" visible="true" type="44" color="#e8f0f4" alpha="1" ltx="74" lty="14" lbx="74" lby="44" rtx="102" rty="14" rbx="102" rby="44"/>
+	<layer name="Symbol 1" visible="true" type="46" color="#e8f0f4" alpha="1" ltx="72" lty="-4" lbx="72" lby="23" rtx="101" rty="-4" rbx="101" rby="23"/>
+	<layer name="Symbol 2" visible="true" type="38" color="#e8f0f4" alpha="1" ltx="74" lty="-49" lbx="74" lby="-19" rtx="99" rty="-49" rbx="99" rby="-19"/>
+	<layer name="Symbol 3" visible="true" type="50" color="#e8f8f8" alpha="1" ltx="-97" lty="18" lbx="-97" lby="44" rtx="-74" rty="18" rbx="-74" rby="44"/>
+	<layer name="Symbol 4" visible="true" type="40" color="#e8f0f4" alpha="1" ltx="72" lty="-25" lbx="72" lby="1" rtx="100" rty="-25" rbx="100" rby="1"/>
+	<layer name="Symbol 5" visible="true" type="40" color="#e8f0f4" alpha="1" ltx="-100" lty="-15" lbx="-100" lby="11" rtx="-72" rty="-15" rbx="-72" rby="11"/>
+	<layer name="Symbol 6" visible="true" type="39" color="#e8f8f4" alpha="1" ltx="-99" lty="-1" lbx="-99" lby="29" rtx="-73" rty="-1" rbx="-73" rby="29"/>
+	<layer name="Symbol 7" visible="true" type="39" color="#e8f8f4" alpha="1" ltx="-99" lty="-33" lbx="-99" lby="-3" rtx="-73" rty="-33" rbx="-73" rby="-3"/>
+	<layer name="Symbol 8" visible="true" type="0" color="#e8ecfc" alpha="1" ltx="-99" lty="-47" lbx="-99" lby="-25" rtx="-69" rty="-47" rbx="-69" rby="-25"/>
+	<layer name="Symbol 9" visible="true" type="328" color="#000000" alpha="1" ltx="-67" lty="-22" lbx="-67" lby="-8" rtx="-52" rty="-22" rbx="-52" rby="-8"/>
+	<layer name="Symbol 10" visible="true" type="241" color="#000000" alpha="1" ltx="-69" lty="-16" lbx="-57" lby="-10" rtx="-60" rty="-25" rbx="-48" rby="-19"/>
+	<layer name="Symbol 11" visible="true" type="328" color="#000000" alpha="1" ltx="68" lty="-36" lbx="42" lby="-20" rtx="84" rty="-10" rbx="58" rby="6"/>
+	<layer name="Symbol 12" visible="true" type="329" color="#000000" alpha="1" ltx="-65" lty="3" lbx="-51" lby="63" rtx="-73" rty="3" rbx="-59" rby="63"/>
+	<layer name="Symbol 13" visible="true" type="329" color="#000000" alpha="1" ltx="65" lty="-1" lbx="58" lby="60" rtx="73" rty="-1" rbx="66" rby="60"/>
+	<layer name="Symbol 14" visible="true" type="242" color="#000000" alpha="1" ltx="73" lty="-64" lbx="73" lby="69" rtx="107" rty="-64" rbx="107" rby="69"/>
+	<layer name="Symbol 15" visible="true" type="242" color="#000000" alpha="1" ltx="-100" lty="-66" lbx="-100" lby="67" rtx="-68" rty="-66" rbx="-68" rby="67"/>
+	<layer name="Symbol 16" visible="true" type="336" color="#000000" alpha="1" ltx="86" lty="2" lbx="44" lby="18" rtx="74" rty="-15" rbx="32" rby="1"/>
+	<layer name="Symbol 17" visible="true" type="336" color="#000000" alpha="1" ltx="-82" lty="3" lbx="-43" lby="24" rtx="-68" rty="-13" rbx="-29" rby="8"/>
+	<layer name="Symbol 18" visible="true" type="321" color="#000000" alpha="1" ltx="-27" lty="0" lbx="-30" lby="15" rtx="-13" rty="3" rbx="-16" rby="18"/>
+	<layer name="Symbol 19" visible="true" type="357" color="#000000" alpha="1" ltx="-77" lty="25" lbx="-63" lby="3" rtx="-28" rty="48" rbx="-14" rby="26"/>
+	<layer name="Symbol 20" visible="true" type="357" color="#000000" alpha="1" ltx="79" lty="19" lbx="64" lby="-1" rtx="32" rty="46" rbx="17" rby="26"/>
+	<layer name="Symbol 21" visible="true" type="357" color="#000000" alpha="1" ltx="-65" lty="37" lbx="-58" lby="17" rtx="-12" rty="56" rbx="-5" rby="36"/>
+	<layer name="Symbol 22" visible="true" type="357" color="#000000" alpha="1" ltx="61" lty="43" lbx="56" lby="22" rtx="6" rty="55" rbx="1" rby="34"/>
+	<layer name="Symbol 23" visible="true" type="242" color="#000000" alpha="1" ltx="0" lty="27" lbx="-18" lby="54" rtx="-12" rty="17" rbx="-30" rby="44"/>
+	<layer name="Symbol 24" visible="true" type="242" color="#000000" alpha="1" ltx="-5" lty="29" lbx="13" lby="54" rtx="7" rty="19" rbx="25" rby="44"/>
+	<layer name="Symbol 25" visible="true" type="346" color="#000000" alpha="1" ltx="3" lty="35" lbx="8" lby="21" rtx="-15" rty="20" rbx="-10" rby="6"/>
+	<layer name="Symbol 26" visible="true" type="346" color="#000000" alpha="1" ltx="3" lty="38" lbx="8" lby="24" rtx="-15" rty="23" rbx="-10" rby="9"/>
+	<layer name="Symbol 27" visible="true" type="346" color="#000000" alpha="1" ltx="3" lty="36" lbx="8" lby="22" rtx="-15" rty="21" rbx="-10" rby="7"/>
+	<layer name="Symbol 28" visible="true" type="346" color="#000000" alpha="1" ltx="3" lty="36" lbx="8" lby="22" rtx="-15" rty="21" rbx="-10" rby="7"/>
+	<layer name="Symbol 29" visible="true" type="346" color="#000000" alpha="1" ltx="4" lty="36" lbx="9" lby="22" rtx="-14" rty="21" rbx="-9" rby="7"/>
+	<layer name="Symbol 30" visible="true" type="346" color="#000000" alpha="1" ltx="4" lty="35" lbx="9" lby="21" rtx="-14" rty="20" rbx="-9" rby="6"/>
+	<layer name="Symbol 31" visible="true" type="332" color="#000000" alpha="1" ltx="19" lty="-1" lbx="4" lby="-1" rtx="19" rty="13" rbx="4" rby="13"/>
+	<layer name="Symbol 32" visible="true" type="356" color="#000000" alpha="1" ltx="-20" lty="0" lbx="-11" lby="26" rtx="-10" rty="-4" rbx="-1" rby="22"/>
+	<layer name="Symbol 33" visible="true" type="356" color="#000000" alpha="1" ltx="-4" lty="-17" lbx="-11" lby="11" rtx="-14" rty="-21" rbx="-21" rby="7"/>
+	<layer name="Symbol 34" visible="true" type="356" color="#000000" alpha="1" ltx="-3" lty="-5" lbx="-10" lby="23" rtx="-13" rty="-9" rbx="-20" rby="19"/>
+	<layer name="Symbol 35" visible="true" type="356" color="#000000" alpha="1" ltx="-7" lty="-32" lbx="-11" lby="-3" rtx="-17" rty="-35" rbx="-21" rby="-6"/>
+	<layer name="Symbol 36" visible="true" type="334" color="#000000" alpha="1" ltx="-7" lty="-36" lbx="-36" lby="-44" rtx="-12" rty="-21" rbx="-41" rby="-29"/>
+	<layer name="Symbol 37" visible="true" type="676" color="#000000" alpha="1" ltx="-13" lty="-5" lbx="-14" lby="-29" rtx="-65" rty="-5" rbx="-66" rby="-29"/>
+	<layer name="Symbol 38" visible="true" type="676" color="#000000" alpha="1" ltx="68" lty="-6" lbx="66" lby="-31" rtx="16" rty="-3" rbx="14" rby="-28"/>
+	<layer name="Symbol 39" visible="true" type="334" color="#000000" alpha="1" ltx="10" lty="-37" lbx="13" lby="-19" rtx="43" rty="-44" rbx="46" rby="-26"/>
+	<layer name="Symbol 40" visible="true" type="335" color="#000000" alpha="1" ltx="8" lty="-54" lbx="65" lby="-48" rtx="7" rty="-26" rbx="64" rby="-20"/>
+	<layer name="Symbol 41" visible="true" type="335" color="#000000" alpha="1" ltx="-6" lty="-54" lbx="-63" lby="-48" rtx="-4" rty="-25" rbx="-61" rby="-19"/>
+	<layer name="Symbol 42" visible="true" type="242" color="#e8f0f4" alpha="1" ltx="-95" lty="-77" lbx="-95" lby="75" rtx="96" rty="-78" rbx="96" rby="74"/>
+</sa>
