@@ -63,7 +63,7 @@ def pretrain_embeddings():
         loss_func = lambda x: max(x)
     print('Beginning training')
     with open('pretrain_metrics.csv', 'w') as f:
-        for edx in range(1):
+        for edx in range(10000):
             losses = []
             for idx, i_batch in enumerate(dataloader):
                 image, label = i_batch['image'], i_batch['idx']
