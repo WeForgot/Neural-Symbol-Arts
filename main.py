@@ -65,7 +65,7 @@ def main():
     else:
         loss_func = lambda x: max(x)
     with open('train_metrics.csv', 'w') as f:
-        for edx in range(1):
+        for edx in range(max_epochs):
             losses = []
             for idx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'], i_batch['label'], i_batch['mask']

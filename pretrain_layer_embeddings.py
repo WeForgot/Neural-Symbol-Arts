@@ -1,5 +1,6 @@
 import os
 
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,6 +12,12 @@ from nystrom_attention import Nystromformer
 
 from models.datasets import LayersDataset
 from models.utils import load_layers, get_parameter_count
+def average_lists(big_list):
+    for ldx in range(len(big_list)):
+        big_list[ldx] = [sum(x) for x in zip(*big_list[ldx])]
+    return big_list
+
+
 
 def pretrain_embeddings():
     if torch.cuda.is_available():
@@ -56,7 +63,7 @@ def pretrain_embeddings():
         loss_func = lambda x: max(x)
     print('Beginning training')
     with open('pretrain_metrics.csv', 'w') as f:
-        for edx in range(1000):
+        for edx in range(1):
             losses = []
             for idx, i_batch in enumerate(dataloader):
                 image, label = i_batch['image'], i_batch['idx']
@@ -84,18 +91,25 @@ def pretrain_embeddings():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking')
                 break
-    print(dataset[0]['feature'].shape)
-    print(dataset[0]['label'].shape)
     model.load_state_dict(best_model)
     model.eval()
     torch.save(model.state_dict(), 'better_trained.pt')
     model.mlp_head = nn.Identity()
+    num_to_average = 100
+    all_embs = [[] for x in range(len(dataset))]
     with open('weights.tsv', 'w') as f, open('names.tsv', 'w') as n:
+        for _ in tqdm(range(num_to_average)):
+            for sample in dataset:
+                path, image, idx = sample['path'], sample['image'], sample['idx']
+                weights = model(image.unsqueeze(0).to(device))[0].tolist()
+                all_embs[idx].append(weights)
+        final_weights = average_lists(all_embs)
+        final_weights = np.asarray(final_weights)
         for sample in dataset:
-            path, image = sample['path'], sample['image']
-            weights = model(image.unsqueeze(0).to(device))[0].tolist()
-            f.write('\t'.join(list(map(str, weights)))+'\n')
+            path, image, idx = sample['path'], sample['image'], sample['idx']
+            f.write('\t'.join(list(map(str, final_weights[idx])))+'\n')
             n.write('{}\n'.format(os.path.split(path)[-1]))
+
 
 if __name__ == '__main__':
     pretrain_embeddings()
