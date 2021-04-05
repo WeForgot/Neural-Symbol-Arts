@@ -14,7 +14,7 @@ from models.datasets import LayersDataset
 from models.utils import load_layers, get_parameter_count
 def average_lists(big_list):
     for ldx in range(len(big_list)):
-        big_list[ldx] = [sum(x) for x in zip(*big_list[ldx])]
+        big_list[ldx] = [sum(x)/len(x) for x in zip(*big_list[ldx])]
     return big_list
 
 
