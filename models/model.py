@@ -24,12 +24,14 @@ def top_k(logits, thres = 0.9):
     return probs
 
 class TransformerWrapper(nn.Module):
-    def __init__(self, *, max_seq_len, attn_layers, emb_dim, use_pos_emb = True, emb_dropout = 0.0):
+    def __init__(self, *, num_tokens, max_seq_len, attn_layers, emb_dim, use_pos_emb = True, emb_dropout = 0.0):
         super().__init__()
         assert isinstance(attn_layers, AttentionLayers), 'Attention layers must either be an Encoder or Decoder'
         # MIGHT BE SOME ISSUES SINCE I MOVED EMB_DIM TO A VARIABLE
         dim = attn_layers.dim
-        self.max_seq_len = 226
+        self.emb_dim = emb_dim
+        self.max_seq_len = max_seq_len
+        self.token_emb = nn.Embedding(num_tokens, emb_dim)
         self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len) if (use_pos_emb and not attn_layers.has_pos_emb) else always(0)
         self.emb_dropout = nn.Dropout(emb_dropout)
 
@@ -39,6 +41,10 @@ class TransformerWrapper(nn.Module):
         self.to_logits = nn.Linear(dim, emb_dim)
     
     def forward(self, x, mask=None, return_attn=False, **kwargs):
+        # Split inputs so that we can embed the layers
+        indices = x[:,:,0]
+        embs = self.token_emb(indices)
+        x = torch.cat(embs, x[:,:,1:])
         x += self.pos_emb(x)
         x = self.emb_dropout(x)
         x = self.project_emb(x)
@@ -48,7 +54,7 @@ class TransformerWrapper(nn.Module):
         return out
 
 class BasicNSA(nn.Module):
-    def __init__(self, row_len, dim = 128, patch_size=32, e_depth = 6, e_heads = 8, d_depth = 6, d_heads = 8, emb_dropout=0.):
+    def __init__(self, num_tokens = 300, dim = 128, patch_size=32, e_depth = 6, e_heads = 8, d_depth = 6, d_heads = 8, emb_dropout=0.):
         super(BasicNSA, self).__init__()
         sa_size = (576, 288)
         saml_sz = (226, row_len) # 8 embeddings + 3 color channels + alpha + ltx + lty + tbx + lby + rtx + rty + rbx + rby
@@ -65,13 +71,13 @@ class BasicNSA(nn.Module):
         )
 
         self.decoder = TransformerWrapper(
+            num_tokens = num_tokens,
             max_seq_len = 226,
             attn_layers = Decoder(
                 dim = dim,
                 depth = d_depth,
                 heads = d_heads
-            ),
-            emb_dim=row_len
+            )
         )
     
 
