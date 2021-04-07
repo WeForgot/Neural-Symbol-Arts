@@ -28,7 +28,7 @@ def top_k(logits, thres = 0.9):
     return probs
 
 class ViT(nn.Module):
-    def __init__(self, *, image_size, patch_size, num_classes, dim, transformer, pool = 'cls', channels = 3):
+    def __init__(self, *, image_size, patch_size, dim, transformer, pool = 'cls', channels = 3):
         super().__init__()
         assert image_size % patch_size == 0, 'image dimensions must be divisible by the patch size'
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
@@ -58,20 +58,19 @@ class ViT(nn.Module):
 
         return self.to_latent(x)
 
-class TempTry(nn.Module):
-    def __init__(self, layer_count, emb_dim):
-        super(TempTry, self).__init__()
+class BasicNSA(nn.Module):
+    def __init__(self, layer_count, emb_dim, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, d_depth = 12, d_heads=8):
+        super(BasicNSA, self).__init__()
         self.layer_count = layer_count
         self.emb_dim = emb_dim
         self.encoder = ViT(
             image_size = 576,
-            patch_size = 32,
-            dim = 16,
-            num_classes = emb_dim+12,
+            patch_size = patch_size,
+            dim = dim,
             transformer = Nystromformer(
-                dim = 16,
-                depth = 1,
-                heads = 8,
+                dim = dim,
+                depth = e_depth,
+                heads = e_heads,
             )
         )
 
@@ -79,11 +78,11 @@ class TempTry(nn.Module):
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
 
         self.decoder = Decoder(
-            dim = 12+emb_dim,
-            depth = 1,
-            heads = 8
+            dim = dim+12,
+            depth = d_depth,
+            heads = d_heads
         )
-        self.to_logits = nn.Linear(12+emb_dim, layer_count+12)
+        self.to_logits = nn.Linear(dim+12, layer_count+12)
     
     def forward(self, src, tgt=None, mask=None):
         emb_idx, metrics = torch.split(tgt, [1, tgt.shape[-1] - 1], dim=-1)
@@ -139,7 +138,14 @@ def main():
         print('CUDA not available')
     layer_count = 388
     emb_dim = 32
-    model = TempTry(layer_count=layer_count, emb_dim=emb_dim).to(device)
+    model = BasicNSA(layer_count, emb_dim,
+        dim= int(os.getenv('DIM', 128)),
+        patch_size= int(os.getenv('PATCH_SIZE', 32)),
+        e_depth = int(os.getenv('E_DEPTH', 6)),
+        e_heads = int(os.getenv('E_HEADS', 8)),
+        d_depth = int(os.getenv('D_DEPTH', 6)),
+        d_heads = int(os.getenv('D_HEADS', 8)),
+    ).to(device)
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
@@ -147,6 +153,7 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
+    
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
     opt = optim.AdamW(model.parameters(), lr=3e-4)
