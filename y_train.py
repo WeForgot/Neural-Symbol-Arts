@@ -164,10 +164,10 @@ def main():
     decoder_opt = optim.Adam(decoder.parameters(), lr=3e-4)
     emb_loss = nn.CrossEntropyLoss()
     loc_loss = nn.L1Loss()
-    target_length = 225
-    teacher_forcing_ratio = 0.9
-    teacher_forcing_decay = 0.95
-    teacher_forcing_min = 0.4
+    target_length = int(os.getenv('TARGET_LENGTH', 225))
+    teacher_forcing_ratio = float(os.getenv('TEACHER_RATIO', 0.9))
+    teacher_forcing_decay = float(os.getenv('TEACHER_DECAY', 0.99))
+    teacher_forcing_min = float(os.getenv('TEACHER_MIN', 0.3))
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     max_epochs = int(os.getenv('EPOCHS', 100))
