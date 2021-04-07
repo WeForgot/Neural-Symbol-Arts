@@ -107,6 +107,7 @@ class BasicNSA(nn.Module):
             mask[0][idx] = True
             pred_emb_logits, pred_l1_logits = self(src, tgt=out, mask=mask)
             pred_emb_logits, pred_l1_logits = pred_emb_logits[:,-1,:], pred_l1_logits[:,-1,:]
+            print(pred_l1_logits)
             filtered_logits = top_k(pred_emb_logits, thres=0.9)
             probs = nn.functional.softmax(filtered_logits / 1.0, dim=-1)
             sample = torch.multinomial(probs, 1)
@@ -202,18 +203,12 @@ def main():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking')
                 break
+
     please_work = torch.from_numpy(io.imread('PleaseWork.png')[:,:,:3].transpose((2, 0, 1)).astype(np.float32)).to(device)
     out = model.generate(please_work, 226, vocab['<EOS>'])
     out = out.to('cpu')[0].numpy().astype(np.int16)
-    for line in out:
-        print(line)
-    
-    model.load_state_dict(best_model)
-    model.eval()
-    torch.save(model.state_dict(), 'better_trained.pt')
-    out = model.generate(io.imread('PleaseWork.png')[:,:,:3].transpose((2, 0, 1)).astype(np.float32).to(device), 10)
-    out = out.to('cpu')
-    np.save('testing.npy', out[0].numpy())
+    #for line in out:
+    #    print(line)
     
 
 if __name__ == '__main__':
