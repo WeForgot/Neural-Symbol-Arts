@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import random
@@ -137,6 +138,18 @@ def main():
         d_depth = int(os.getenv('D_DEPTH', 6)),
         d_heads = int(os.getenv('D_HEADS', 8)),
     ).to(device)
+    with open('meta.json', 'w') as f:
+        info = {
+            'dim': int(os.getenv('DIM', 128)),
+            'patch_size': int(os.getenv('PATCH_SIZE', 32)),
+            'e_depth': int(os.getenv('E_DEPTH', 6)),
+            'e_heads': int(os.getenv('E_HEADS', 8)),
+            'layer_count': len(vocab),
+            'emb_dim': int(os.getenv('EMB_DIM', 8)),
+            'd_depth': int(os.getenv('D_DEPTH', 6)),
+            'd_heads': int(os.getenv('D_HEADS', 8))
+        }
+        json.dump(info, f)
     print(encoder)
     trainable, untrainable = get_parameter_count(encoder)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
