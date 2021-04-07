@@ -116,8 +116,7 @@ class LayersDataset(Dataset):
         return {'idx': idx, 'path': img_name, 'image': sample}
 
 class SADataset(Dataset):
-    def __init__(self, base_path, data):
-        self.base_path = base_path
+    def __init__(self, data):
         self.data = data
     
     def __len__(self):
@@ -127,8 +126,6 @@ class SADataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         cur_data = self.data[idx]
-        feature, label, mask = io.imread(os.path.join(self.base_path, cur_data['feature']))[:,:,:3].astype(np.float32), cur_data['label'], cur_data['mask']
+        feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32), cur_data['label'], cur_data['mask']
         feature = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32))
-        label = np.vstack([np.zeros((1,label.shape[1])), label]).astype(np.float32)
-        mask = np.hstack([np.ones((1,)), mask]).astype(np.uint8)
         return {'feature': feature, 'label': label, 'mask': mask}

@@ -74,3 +74,34 @@ def load_saml(filepath, weights):
         saml[ldx] = processedLine
         mask[ldx] = 1
     return saml, mask
+
+# Remember that SAML layer type values need to add 1 to them to get the cooresponding layer name
+class Vocabulary(object):
+    def __init__(self):
+        self.layer_to_idx = {'<SOS>': 0, '<EOS>': 1}
+        self.idx_to_layer = {0: '<SOS>', 1: '<EOS>'}
+    
+    def load_layers(self, layer_path: str) -> None:
+        imgs = glob.glob(os.path.join(layer_path, '[0-9]*.png'))
+        for img in imgs:
+            cur_len = len(self.layer_to_idx)
+            idx = str(int(os.path.split(img)[-1].rstrip('.png')) - 1)
+            self.layer_to_idx[idx] = cur_len
+            self.idx_to_layer[cur_len] = idx
+    
+    def __len__(self):
+        return len(self.layer_to_idx)
+    
+    def __repr__(self):
+        to_return = ''
+        for x in self.idx_to_layer:
+            to_return += '{}: {}\n'.format(x, self.idx_to_layer[x])
+        return to_return
+    
+    def __getitem__(self, idx):
+        if isinstance(idx, str):
+            return self.layer_to_idx[idx]
+        elif isinstance(idx, int):
+            return self.idx_to_layer[idx]
+        else:
+            raise ValueError('Vocabulary indices can only be strings or integers')

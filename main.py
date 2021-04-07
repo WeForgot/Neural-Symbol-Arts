@@ -37,6 +37,7 @@ def main():
     row_length = len(dataset[0]['label'][0])
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
     model = BasicNSA(
+        row_len=row_length,
         dim= int(os.getenv('DIM', 128)),
         patch_size= int(os.getenv('PATCH_SIZE', 32)),
         e_depth = int(os.getenv('E_DEPTH', 6)),
