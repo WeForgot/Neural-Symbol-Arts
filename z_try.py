@@ -105,20 +105,14 @@ class TempTry(nn.Module):
         idx = 1
         mask[0][0] = True
         while idx < max_seq_len:
-            #x = out[:, -max_seq_len]
-            #mask = mask[:, -max_seq_len]
             mask[0][idx] = True
             pred_emb_logits, pred_l1_logits = self(src, tgt=out, mask=mask)
             pred_emb_logits, pred_l1_logits = pred_emb_logits[:,-1,:], pred_l1_logits[:,-1,:]
-            #pred = self.to_logits(self.decoder(x, context=src, mask=mask)[0,-1,:])
-            #pred_emb_logits, pred_l1_logits = torch.split(pred, [self.layer_count, pred.shape[-1] - self.layer_count], dim=-1)
             filtered_logits = top_k(pred_emb_logits, thres=0.9)
             probs = nn.functional.softmax(filtered_logits / 1.0, dim=-1)
             sample = torch.multinomial(probs, 1)
             out[0,idx,0] = sample[0][0]
-            print(pred_l1_logits)
             sample = torch.cat([sample, pred_l1_logits], dim=-1)
-            #print(sample)
             out[0,idx,:] = sample
             if out[0,idx,0] == eos_token:
                 break
@@ -128,22 +122,11 @@ class TempTry(nn.Module):
 def CrossL1Loss(pred_embs: torch.Tensor, pred_locs: torch.Tensor, true: torch.Tensor, emb_dim: int):
     cl = nn.CrossEntropyLoss()
     ll = nn.L1Loss()
-    #pred_emb_logits, pred_l1_logits = torch.split(pred, [emb_dim, pred.shape[-1] - emb_dim], dim=-1)
     true_emb_idx, true_l1_logits = torch.split(true, [1, true.shape[-1] - 1], dim=-1)
     true_emb_idx = torch.squeeze(true_emb_idx, dim=-1)
-
-    #print('Predicted embedding dim shape: {}'.format(pred_emb_logits.shape))
-    #print('Prediction logit shape: {}'.format(pred_l1_logits.shape))
-    #print('True embedding index shape: {}'.format(true_emb_idx.shape))
-    #print('True logit shape: {}'.format(true_l1_logits.shape))
     
     cross_loss = nn.functional.cross_entropy(pred_embs.transpose(1,2), true_emb_idx.long())
     l1_loss = nn.functional.l1_loss(pred_locs, true_l1_logits)
-
-    #print('L1 loss: {}'.format(l1_loss))
-    #print('Cross entropy loss: {}'.format(cross_loss))
-    #print('L1 shape: {}'.format(l1_loss.shape))
-    #print('Cross entropy shape: {}'.format(cross_loss.shape))
 
     return cross_loss, l1_loss
 
@@ -216,6 +199,13 @@ def main():
     out = out.to('cpu')[0].numpy().astype(np.int16)
     for line in out:
         print(line)
+    
+    model.load_state_dict(best_model)
+    model.eval()
+    torch.save(model.state_dict(), 'better_trained.pt')
+    out = model.generate(io.imread('PleaseWork.png')[:,:,:3].transpose((2, 0, 1)).astype(np.float32).to(device), 10)
+    out = out.to('cpu')
+    np.save('testing.npy', out[0].numpy())
     
 
 if __name__ == '__main__':
