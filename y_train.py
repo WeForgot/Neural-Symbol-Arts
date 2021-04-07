@@ -152,7 +152,7 @@ def main():
     emb_loss = nn.CrossEntropyLoss()
     loc_loss = nn.L1Loss()
     target_length = 225
-    teacher_forcing_ratio = 0.5
+    teacher_forcing_ratio = 0.9
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     max_epochs = int(os.getenv('EPOCHS', 100))
@@ -182,7 +182,7 @@ def main():
                 emb_label = torch.squeeze(emb_label, dim=-1)
                 enc_out = encoder(feature)
                 src = torch.tensor([[SOS_token]])
-                use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+                use_teacher_forcing = True if teacher_forcing_ratio > random.random() else False
                 if use_teacher_forcing:
                     for di in range(target_length):
                         tgt = label[:,:di+1,:]
@@ -220,7 +220,7 @@ def main():
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()
-            print('Epoch #{}, Loss: {}'.format(edx, loss_val))
+            print('Epoch #{}, Teacher Ratio: {}, Loss: {}'.format(edx, teacher_forcing_ratio, loss_val))
             if best_loss is None or loss_val < best_loss:
                 best_loss = loss_val
                 best_encoder = encoder.state_dict()
@@ -231,6 +231,7 @@ def main():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking')
                 break
+            teacher_forcing_ratio *= 0.9
     
     encoder = encoder.to('cpu')
     decoder = decoder.to('cpu')
