@@ -192,6 +192,8 @@ def main():
                         short_label, short_loc = emb_label[:,di:di+1], loc_label[:,di:di+1,:]
                         batch_emb_loss += emb_loss(emb_out.transpose(1,2), short_label.long())
                         batch_loc_loss += loc_loss(loc_out, short_loc)
+                        if short_label[0].item() == EOS_token:
+                            break
                 else:
                     tgt = label[:,:1,:]
                     for di in range(target_length):
@@ -202,7 +204,7 @@ def main():
                         batch_emb_loss += emb_loss(emb_out.transpose(1,2), short_label.long())
                         batch_loc_loss += loc_loss(loc_out, short_loc)
                         top_v, top_i = emb_out.topk(1)
-                        if top_i.squeeze(dim=-1)[0][-1] == EOS_token:
+                        if short_label[0].item() == EOS_token:
                             break
                         new_layer = torch.cat([top_i, loc_out], dim=-1)[:,-1,:]
                         tgt = torch.cat([tgt,torch.unsqueeze(new_layer, dim=0)], dim=1)
