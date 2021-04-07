@@ -78,11 +78,11 @@ class BasicNSA(nn.Module):
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
 
         self.decoder = Decoder(
-            dim = dim+12,
+            dim = emb_dim+12,
             depth = d_depth,
             heads = d_heads
         )
-        self.to_logits = nn.Linear(dim+12, layer_count+12)
+        self.to_logits = nn.Linear(emb_dim+12, layer_count+12)
     
     def forward(self, src, tgt=None, mask=None):
         emb_idx, metrics = torch.split(tgt, [1, tgt.shape[-1] - 1], dim=-1)
@@ -137,8 +137,9 @@ def main():
         device = torch.device('cpu')
         print('CUDA not available')
     layer_count = 388
-    emb_dim = 32
-    model = BasicNSA(layer_count, emb_dim,
+    emb_dim = 8
+    model = BasicNSA(layer_count, 
+        emb_dim = int(os.getenv('EMB_DIM', 8)),
         dim= int(os.getenv('DIM', 128)),
         patch_size= int(os.getenv('PATCH_SIZE', 32)),
         e_depth = int(os.getenv('E_DEPTH', 6)),
