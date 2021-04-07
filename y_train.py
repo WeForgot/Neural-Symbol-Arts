@@ -153,6 +153,8 @@ def main():
     loc_loss = nn.L1Loss()
     target_length = 225
     teacher_forcing_ratio = 0.9
+    teacher_forcing_decay = 0.95
+    teacher_forcing_min = 0.4
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     max_epochs = int(os.getenv('EPOCHS', 100))
@@ -231,7 +233,7 @@ def main():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking')
                 break
-            teacher_forcing_ratio *= 0.9
+            teacher_forcing_ratio = max(teacher_forcing_decay*teacher_forcing_ratio, teacher_forcing_min)
     
     encoder = encoder.to('cpu')
     decoder = decoder.to('cpu')
