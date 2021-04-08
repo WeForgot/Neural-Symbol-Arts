@@ -86,7 +86,9 @@ class AutoregressiveDecoder(nn.Module):
             depth = d_depth,
             heads = d_heads
         )
-        self.to_logits = nn.Linear(self.latent_dim, self.logit_dim)
+        #self.to_logits = nn.Linear(self.latent_dim, self.logit_dim)
+        self.to_classes = nn.Linear(self.latent_dim, self.layer_count)
+        self.to_metrics = nn.Linear(self.latent_dim, 12)
     
     def forward(self, src, mask=None, context=None, return_scalar_loss=False):
         features, labels = src[:,:-1,:], src[:,-1:,:]
@@ -97,8 +99,10 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         y = torch.cat([embs, feature_met], dim=-1)
         x = self.decoder(y, context=context, mask=feature_mask)
-        x = self.to_logits(x)
-        pred_embs, pred_mets = torch.split(x, [self.layer_count, 12], dim=-1)
+        pred_embs = self.to_classes(x)
+        pred_mets = self.to_metrics(x)
+        #x = self.to_logits(x)
+        #pred_embs, pred_mets = torch.split(x, [self.layer_count, 12], dim=-1)
         emb_loss = F.cross_entropy(pred_embs[:,-1,:], label_emb.long())
         met_loss = F.l1_loss(pred_mets[:,-1:,:], label_met)
         if return_scalar_loss:
@@ -121,9 +125,8 @@ class AutoregressiveDecoder(nn.Module):
 
             x = torch.cat([out_embs, out_locs], dim=-1)
             x = self.decoder(x, context=context, mask=out_mask)
-            x = self.to_logits(x)
-            x = x[:,-1:,:]
-            out_embs, out_locs = x[:,:,:-12], x[:,:,-12:]
+            out_embs, out_locs = self.to_classes(x), self.to_metrics(x)
+            out_embs, out_locs = out_embs[:,-1:,:], out_locs[:,-1:,:]
             emb_idx = torch.topk(out_embs, 1)[1].item()
             out.append([emb_idx] + list(map(round, out_locs.squeeze().tolist())))
             if emb_idx == eos_token:
