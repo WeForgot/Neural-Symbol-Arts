@@ -6,19 +6,21 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from webcolors import hex_to_rgb
 
-from models.utils import load_weights, load_saml, Vocabulary
+from model.utils import load_weights, load_saml, Vocabulary
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False) -> np.ndarray:
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
     root = ET.fromstring(''.join(all_lines))
+    sos_line = [vocab['<SOS>']] + [0] * 12
+    eos_line = [vocab['<EOS>']] + [0] * 12
+    pad_line = [vocab['<PAD>']] + [0] * 12
     saml_lines = []
-    saml_lines = np.zeros((227,13), dtype=np.int16)
-    saml_lines[0][0] = vocab['<SOS>']
-    saml_mask = np.zeros((227,), dtype=np.bool)
-    saml_mask[0] = True
-    max_layer = 0
+    saml_mask = []
+    saml_lines.append(sos_line)
+    saml_mask.append(True)
+    max_length += 2 # We are adding the SOS and EOS tokens
     for ldx, layer in enumerate(root):
         attribs = layer.attrib
         layer_type = attribs['type']
@@ -27,8 +29,8 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False) -> np
         ltx, lty, lbx, lby = attribs['ltx'], attribs['lty'], attribs['lbx'], attribs['lby']
         rtx, rty, rbx, rby = attribs['rtx'], attribs['rty'], attribs['rbx'], attribs['rby']
         if attribs['visible'] == 'true':
-            saml_lines[ldx+1] = np.asarray(list(map(int, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby])))
-            saml_mask[ldx+1] = True
+            saml_lines.append(list(map(int, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby])))
+            saml_mask.append(True)
         if verbose:
             print('Layer #{}'.format(ldx+1))
             print('\tType: {}'.format(layer_type))
@@ -36,9 +38,12 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False) -> np
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-        max_layer = ldx
-    saml_lines[max_layer+1:,0] = vocab['<EOS>']
-    return saml_lines, saml_mask
+    saml_lines.append(eos_line)
+    saml_mask.append(True)
+    while len(saml_lines) < max_length:
+        saml_lines.append(pad_line)
+        saml_mask.append(False)
+    return np.asarray(saml_lines, dtype=np.int16), np.asarray(saml_mask, dtype=np.bool)
 
 # 386 layers + start token + pad token = 388 vocab size
 def main():

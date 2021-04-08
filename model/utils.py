@@ -78,8 +78,8 @@ def load_saml(filepath, weights):
 # Remember that SAML layer type values need to add 1 to them to get the cooresponding layer name
 class Vocabulary(object):
     def __init__(self):
-        self.layer_to_idx = {'<SOS>': 0, '<EOS>': 1}
-        self.idx_to_layer = {0: '<SOS>', 1: '<EOS>'}
+        self.layer_to_idx = {'<SOS>': 0, '<EOS>': 1, '<PAD>': 2}
+        self.idx_to_layer = {0: '<SOS>', 1: '<EOS>', 2: '<PAD>'}
     
     def load_layers(self, layer_path: str) -> None:
         imgs = glob.glob(os.path.join(layer_path, '[0-9]*.png'))

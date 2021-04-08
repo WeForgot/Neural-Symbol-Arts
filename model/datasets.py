@@ -127,5 +127,5 @@ class SADataset(Dataset):
             idx = idx.tolist()
         cur_data = self.data[idx]
         feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32), cur_data['label'], cur_data['mask']
-        feature = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32))
+        feature, label, mask = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32)), torch.from_numpy(label.astype(np.float32)), torch.from_numpy(mask)
         return {'feature': feature, 'label': label, 'mask': mask}

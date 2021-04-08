@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 from vit_pytorch.efficient import ViT
 from nystrom_attention import Nystromformer
 
-from models.datasets import LayersDataset
-from models.utils import load_layers, get_parameter_count
+from model.datasets import LayersDataset
+from model.utils import load_layers, get_parameter_count
 def average_lists(big_list):
     for ldx in range(len(big_list)):
         big_list[ldx] = [sum(x)/len(x) for x in zip(*big_list[ldx])]
