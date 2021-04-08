@@ -85,7 +85,7 @@ def main():
     best_decoder = None
     batch_metrics = True
     use_blended_loss = True
-    use_switch_loss = True
+    use_switch_loss = False
     max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
