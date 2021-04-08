@@ -104,14 +104,15 @@ def main():
                 encoder_opt.zero_grad()
                 decoder_opt.zero_grad()
                 for idx in range(2, len(label[0])):
-                    loss, each_loss = decoder(label[:,:idx],mask[:,:idx], return_scalar_loss=True)
-                    batch_emb_loss += each_loss[0]
-                    batch_met_loss += each_loss[1]
-                    loss.backward()
+                    emb_loss, met_loss = decoder(label[:,:idx],mask[:,:idx], return_both_loss=True)
+                    batch_emb_loss += emb_loss
+                    batch_met_loss += met_loss
+                batch_emb_loss.backward(retain_graph=True)
+                batch_met_loss.backward(retain_graph=False)
                 encoder_opt.step()
                 decoder_opt.step()
                 print('Batch #{}, Embedding Loss: {}, Metric Loss: {}'.format(bdx, batch_emb_loss, batch_met_loss))
-                losses.append(batch_emb_loss+batch_met_loss)
+                losses.append(batch_emb_loss.item()+batch_met_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()

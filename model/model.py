@@ -86,11 +86,12 @@ class AutoregressiveDecoder(nn.Module):
             depth = d_depth,
             heads = d_heads
         )
-        #self.to_logits = nn.Linear(self.latent_dim, self.logit_dim)
+        self.norm = nn.LayerNorm(self.latent_dim)
+
         self.to_classes = nn.Linear(self.latent_dim, self.layer_count)
         self.to_metrics = nn.Linear(self.latent_dim, 12)
     
-    def forward(self, src, mask=None, context=None, return_scalar_loss=False):
+    def forward(self, src, mask=None, context=None, return_both_loss=False):
         features, labels = src[:,:-1,:], src[:,-1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,-1:]
         label_emb, label_met = torch.split(labels, [1, labels.shape[-1] - 1], dim=-1)
@@ -99,15 +100,12 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         y = torch.cat([embs, feature_met], dim=-1)
         x = self.decoder(y, context=context, mask=feature_mask)
+        x = self.norm(x)
         pred_embs = self.to_classes(x)
         pred_mets = self.to_metrics(x)
-        #x = self.to_logits(x)
-        #pred_embs, pred_mets = torch.split(x, [self.layer_count, 12], dim=-1)
-        emb_loss = F.cross_entropy(pred_embs[:,-1,:], label_emb.long())
-        met_loss = F.l1_loss(pred_mets[:,-1:,:], label_met)
-        if return_scalar_loss:
-            return emb_loss + met_loss, (emb_loss.item(), met_loss.item())
-        return emb_loss + met_loss
+        if return_both_loss:
+            return F.cross_entropy(pred_embs[:,-1,:], label_emb.long()), F.l1_loss(pred_mets[:,-1:,:], label_met)
+        return F.cross_entropy(pred_embs[:,-1,:], label_emb.long()) + F.l1_loss(pred_mets[:,-1:,:], label_met)
     
     @torch.no_grad()
     def generate(self, context, vocab, max_len):
