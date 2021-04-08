@@ -71,8 +71,8 @@ def main():
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
     #encoder_opt = optim.Adam(encoder.parameters(), lr=3e-4)
     #decoder_opt = optim.Adam(decoder.parameters(), lr=3e-4)
-    encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3, momentum=0.9)
-    decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3, momentum=0.9)
+    encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3)
+    decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3)
     target_length = int(os.getenv('TARGET_LENGTH', 225))
     teacher_forcing_ratio = float(os.getenv('TEACHER_RATIO', 0.9))
     teacher_forcing_decay = float(os.getenv('TEACHER_DECAY', 0.99))
@@ -84,6 +84,8 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True
+    use_blended_loss = True
+    use_switch_loss = True
     max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
@@ -107,8 +109,18 @@ def main():
                     emb_loss, met_loss = decoder(label[:,:idx],mask[:,:idx], return_both_loss=True)
                     batch_emb_loss += emb_loss
                     batch_met_loss += met_loss
-                batch_emb_loss.backward(retain_graph=True)
-                batch_met_loss.backward(retain_graph=False)
+                if use_blended_loss:
+                    alpha = batch_emb_loss.item() / (batch_emb_loss.item() + batch_met_loss.item())
+                    total_loss = alpha * batch_emb_loss + (1 - alpha) * batch_met_loss
+                    total_loss.backward()
+                elif use_switch_loss:
+                    if random.random() > 0.5:
+                        batch_emb_loss.backward()
+                    else:
+                        batch_met_loss.backward()
+                else:
+                    total_loss = batch_emb_loss + batch_met_loss
+                    total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
                 print('Batch #{}, Embedding Loss: {}, Metric Loss: {}'.format(bdx, batch_emb_loss, batch_met_loss))
@@ -136,6 +148,7 @@ def main():
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225))
+    np.save('test.npy', generated)
     print(generated)
     print(generated.shape)
 
