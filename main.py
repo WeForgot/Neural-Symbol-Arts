@@ -26,10 +26,10 @@ load_dotenv()
 def main():
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        print('CUDA available')
+        print('CUDA available', flush=True)
     else:
         device = torch.device('cpu')
-        print('CUDA not available')
+        print('CUDA not available', flush=True)
     with open('vocab.pkl', 'rb') as f:
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
@@ -59,12 +59,12 @@ def main():
             'd_heads': int(os.getenv('D_HEADS', 8))
         }
         json.dump(info, f)
-    print(encoder)
+    print(encoder, flush=True)
     trainable, untrainable = get_parameter_count(encoder)
-    print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
-    print(decoder)
+    print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
+    print(decoder, flush=True)
     trainable, untrainable = get_parameter_count(decoder)
-    print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
+    print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
     
     dataset = SADataset(data)
@@ -123,12 +123,12 @@ def main():
                     total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
-                print('Batch #{}, Embedding Loss: {}, Metric Loss: {}'.format(bdx, batch_emb_loss, batch_met_loss))
+                print('Batch #{}, Embedding Loss: {}, Metric Loss: {}'.format(bdx, batch_emb_loss, batch_met_loss), flush=True)
                 losses.append(batch_emb_loss.item()+batch_met_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()
-            print('Epoch #{}, Loss: {}'.format(edx, loss_val))
+            print('Epoch #{}, Loss: {}'.format(edx, loss_val), flush=True)
             if best_loss is None or loss_val < best_loss:
                 best_loss = loss_val
                 best_encoder = encoder.state_dict()
@@ -142,15 +142,15 @@ def main():
                 torch.save(best_decoder, 'decoder.pt')
             
             if cur_patience > max_patience:
-                print('Out of patience. Breaking')
+                print('Out of patience. Breaking', flush=True)
                 break
     feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32)
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225))
     np.save('test.npy', generated)
-    print(generated)
-    print(generated.shape)
+    print(generated, flush=True)
+    print(generated.shape, flush=True)
 
 if __name__ == '__main__':
     main()
