@@ -139,4 +139,10 @@ cython_debug/
 
 # Pytorch models
 *.pt
-testing*
+
+# Various other things
+meta.json
+test.npy
+vocab.pkl
+data.pkl
+train_metrics.csv

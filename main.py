@@ -56,7 +56,8 @@ def main():
             'layer_count': len(vocab),
             'emb_dim': int(os.getenv('EMB_DIM', 8)),
             'd_depth': int(os.getenv('D_DEPTH', 6)),
-            'd_heads': int(os.getenv('D_HEADS', 8))
+            'd_heads': int(os.getenv('D_HEADS', 8)),
+            'emb_drop': float(os.getenv('EMB_DROP', 0.0))
         }
         json.dump(info, f)
     print(encoder, flush=True)
@@ -74,9 +75,7 @@ def main():
     encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3)
     decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3)
     target_length = int(os.getenv('TARGET_LENGTH', 225))
-    teacher_forcing_ratio = float(os.getenv('TEACHER_RATIO', 0.9))
-    teacher_forcing_decay = float(os.getenv('TEACHER_DECAY', 0.99))
-    teacher_forcing_min = float(os.getenv('TEACHER_MIN', 0.3))
+    eval_every = int(os.getenv('EVAL_EVERY', 20))
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     max_epochs = int(os.getenv('EPOCHS', 100))
@@ -137,9 +136,18 @@ def main():
             else:
                 cur_patience += 1
             
-            if edx % 20 == 0:
+            if edx % eval_every == 0:
                 torch.save(best_encoder, 'encoder.pt')
                 torch.save(best_decoder, 'decoder.pt')
+                encoder.eval()
+                decoder.eval()
+                feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32)
+                feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+                enc = encoder(feature.unsqueeze(0))
+                generated = np.asarray(decoder.generate(enc, vocab, 225))
+                np.save('test.npy', generated)
+                encoder.train()
+                decoder.train()
             
             if cur_patience > max_patience:
                 print('Out of patience. Breaking', flush=True)

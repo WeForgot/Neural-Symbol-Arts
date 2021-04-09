@@ -72,7 +72,7 @@ class BasicEncoder(nn.Module):
         return self.encoder(x)
 
 class AutoregressiveDecoder(nn.Module):
-    def __init__(self, layer_count = 388, emb_dim = 8, dim = 16, d_depth = 12, d_heads = 8):
+    def __init__(self, layer_count = 388, emb_dim = 8, dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1):
         super(AutoregressiveDecoder, self).__init__()
         self.layer_count = layer_count
         self.emb_dim = emb_dim
@@ -81,6 +81,7 @@ class AutoregressiveDecoder(nn.Module):
         self.max_seq_len = 225
 
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
+        self.emb_dropout = nn.Dropout(p=emb_drop)
         self.decoder = Decoder(
             dim = self.latent_dim,
             depth = d_depth,
@@ -99,6 +100,7 @@ class AutoregressiveDecoder(nn.Module):
         label_emb = label_emb.squeeze(dim=1).squeeze(dim=1)
         feature_emb, feature_met = torch.split(features, [1, features.shape[-1] - 1], dim=-1)
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
+        embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
         x = self.decoder(y, context=context, mask=feature_mask)
         x = self.norm(x)
