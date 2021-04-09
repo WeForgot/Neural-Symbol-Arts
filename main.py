@@ -67,13 +67,31 @@ def main():
     trainable, untrainable = get_parameter_count(decoder)
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
-    
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-    #encoder_opt = optim.Adam(encoder.parameters(), lr=3e-4)
-    #decoder_opt = optim.Adam(decoder.parameters(), lr=3e-4)
-    encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3)
-    decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3)
+
+    optimizer = os.getenv('OPTIMIZER', 'sgd')
+    if optimizer.lower() == 'adam':
+        encoder_opt = optim.Adam(encoder.parameters(), lr=3e-4)
+        decoder_opt = optim.Adam(decoder.parameters(), lr=3e-4)
+    elif optimizer.lower() == 'adamw':
+        encoder_opt = optim.AdamW(encoder.parameters(), lr=3e-4)
+        decoder_opt = optim.AdamW(decoder.parameters(), lr=3e-4)
+    elif optimizer.lower() == 'asgd':
+        encoder_opt = optim.ASGD(encoder.parameters(), lr=1e-3)
+        decoder_opt = optim.ASGD(decoder.parameters(), lr=1e-3)
+    elif optimizer.lower() == 'rmsprop':
+        encoder_opt = optim.RMSprop(encoder.parameters(), lr=1e-3)
+        decoder_opt = optim.RMSprop(decoder.parameters(), lr=1e-3)
+    elif optimizer.lower() == 'adabelief':
+        from adabelief_pytorch.AdaBelief import AdaBelief
+        encoder_opt = AdaBelief(encoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
+        decoder_opt = AdaBelief(decoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
+    else:
+        encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3)
+        decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3)
+    
+    
     target_length = int(os.getenv('TARGET_LENGTH', 225))
     eval_every = int(os.getenv('EVAL_EVERY', 20))
     SOS_token = vocab['<SOS>']
