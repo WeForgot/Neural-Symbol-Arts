@@ -47,6 +47,12 @@ def main():
         d_depth = int(os.getenv('D_DEPTH', 6)),
         d_heads = int(os.getenv('D_HEADS', 8)),
     ).to(device)
+    if os.path.exists('encoder.pt'):
+        print('Loading existing encoder')
+        encoder.load_state_dict(torch.load('encoder.pt'))
+    if os.path.exists('decoder.pt'):
+        print('Loading existing decoder')
+        decoder.load_state_dict(torch.load('decoder.pt'))
     with open('meta.json', 'w') as f:
         info = {
             'dim': int(os.getenv('DIM', 128)),
