@@ -87,7 +87,9 @@ class AutoregressiveDecoder(nn.Module):
             depth = d_depth,
             heads = d_heads
         )
+        self.last_act = nn.GELU()
         self.norm = nn.LayerNorm(self.latent_dim)
+        self.last_drop = nn.Dropout(p=0.1)
 
         self.to_classes = nn.Linear(self.latent_dim, self.layer_count)
         self.to_metrics = nn.Linear(self.latent_dim, 12)
@@ -103,7 +105,10 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
         x = self.decoder(y, context=context, mask=feature_mask)
+        x = self.last_act(x)
         x = self.norm(x)
+        x = self.last_drop(x)
+
         pred_embs = self.to_classes(x)
         pred_mets = self.to_metrics(x)
 

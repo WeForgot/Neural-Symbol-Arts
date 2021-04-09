@@ -8,7 +8,18 @@ from webcolors import hex_to_rgb
 
 from model.utils import load_weights, load_saml, Vocabulary
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225) -> np.ndarray:
+def clamp_array(arr):
+    # Pos bound = +/-127
+    # Color bound = 0-255
+    # Layer type = Ignore
+    assert len(arr) == 13, 'Layer array must be of length 13'
+    assert type(arr[0]) == np.float32, 'Array values must all be of type float'
+    arr[1:5] = arr[1:5] / 255
+    arr[5:] = (arr[5:] + 127) / (127 * 2)
+    return arr
+
+
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
@@ -29,7 +40,8 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         ltx, lty, lbx, lby = attribs['ltx'], attribs['lty'], attribs['lbx'], attribs['lby']
         rtx, rty, rbx, rby = attribs['rtx'], attribs['rty'], attribs['rbx'], attribs['rby']
         if attribs['visible'] == 'true':
-            saml_lines.append(list(map(int, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby])))
+            cur_line = np.asarray(list(map(int, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby])), dtype=np.float32)
+            saml_lines.append(clamp_array(cur_line))
             saml_mask.append(True)
         if verbose:
             print('Layer #{}'.format(ldx+1))
@@ -43,7 +55,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
         saml_mask.append(False)
-    return np.asarray(saml_lines, dtype=np.int16), np.asarray(saml_mask, dtype=np.bool)
+    return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
 
 # 386 layers + start token + pad token = 388 vocab size
 def main():
