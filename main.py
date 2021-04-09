@@ -123,7 +123,7 @@ def main():
                 encoder_opt.zero_grad()
                 decoder_opt.zero_grad()
                 for idx in range(2, len(label[0])):
-                    emb_loss, met_loss = decoder(label[:,:idx],mask[:,:idx], return_both_loss=True)
+                    emb_loss, met_loss = decoder(label[:,:idx],mask[:,:idx], context=enc, return_both_loss=True)
                     batch_emb_loss += emb_loss
                     batch_met_loss += met_loss
                 if use_blended_loss:

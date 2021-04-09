@@ -137,8 +137,13 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+/.vscode
+
 # Pytorch models
 *.pt
+
+# Tensorboard
+runs/
 
 # Various other things
 meta.json
