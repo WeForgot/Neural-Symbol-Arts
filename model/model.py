@@ -112,6 +112,7 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 10,
     for edx in range(epochs):
         batch_loss = 0
         for bdx, i_batch in enumerate(dataloader):
+            feature = i_batch['feature'].to(device)
             batch_loss += learner(i_batch['feature'].to(device))
         scalar_loss = batch_loss.item()
         print('PRETRAINING: Epoch: {}, Loss: {}'.format(edx, scalar_loss))

@@ -108,7 +108,7 @@ def main():
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
     dataset = SADataset(data)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, drop_last=True)
 
     encoder = pretrain_encoder(encoder, dataloader, device)
     return
