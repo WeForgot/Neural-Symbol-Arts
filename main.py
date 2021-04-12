@@ -78,8 +78,8 @@ def main():
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
-        encoder_opt = optim.Adam(encoder.parameters(), lr=3e-4)
-        decoder_opt = optim.Adam(decoder.parameters(), lr=3e-4)
+        encoder_opt = optim.Adam(encoder.parameters(), lr=1e-3)
+        decoder_opt = optim.Adam(decoder.parameters(), lr=1e-3)
     elif optimizer.lower() == 'adamw':
         encoder_opt = optim.AdamW(encoder.parameters(), lr=3e-4)
         decoder_opt = optim.AdamW(decoder.parameters(), lr=3e-4)
@@ -124,30 +124,36 @@ def main():
             for bdx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 batch_emb_loss = 0
-                batch_met_loss = 0
+                batch_color_loss = 0
+                batch_position_loss = 0
                 enc = encoder(feature)
                 encoder_opt.zero_grad()
                 decoder_opt.zero_grad()
                 for idx in range(2, len(label[0])):
-                    emb_loss, met_loss = decoder(label[:,:idx],mask[:,:idx], context=enc, return_both_loss=True)
+                    emb_loss, color_loss, pos_loss = decoder(label[:,:idx],mask[:,:idx], context=enc, return_both_loss=True)
                     batch_emb_loss += emb_loss
-                    batch_met_loss += met_loss
+                    batch_color_loss += color_loss
+                    batch_position_loss += pos_loss
                 if use_blended_loss:
-                    alpha = batch_emb_loss.item() / (batch_emb_loss.item() + batch_met_loss.item())
-                    total_loss = alpha * batch_emb_loss + (1 - alpha) * batch_met_loss
+                    scalar_losses = [batch_emb_loss.item(), batch_color_loss.item(), batch_position_loss.item()]
+                    alphas = [x / sum(scalar_losses) for x in scalar_losses]
+                    total_loss = batch_emb_loss * alphas[0] + batch_color_loss * alphas[1] + batch_position_loss * alphas[2]
                     total_loss.backward()
                 elif use_switch_loss:
-                    if random.random() > 0.5:
+                    chance = random.choice([1, 2, 3])
+                    if chance == 1:
                         batch_emb_loss.backward()
+                    elif chance == 2:
+                        batch_color_loss.backward()
                     else:
-                        batch_met_loss.backward()
+                        batch_position_loss.backward()
                 else:
-                    total_loss = batch_emb_loss + batch_met_loss
+                    total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
-                print('Batch #{}, Embedding Loss: {}, Metric Loss: {}'.format(bdx, batch_emb_loss, batch_met_loss), flush=True)
-                losses.append(batch_emb_loss.item()+batch_met_loss.item())
+                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_emb_loss, batch_color_loss, batch_position_loss), flush=True)
+                losses.append(batch_emb_loss.item() + batch_color_loss.item() + batch_position_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()
