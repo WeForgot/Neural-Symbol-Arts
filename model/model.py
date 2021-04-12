@@ -17,6 +17,7 @@ from einops.layers.torch import Rearrange
 from vit_pytorch.vit import Transformer
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
+from byol_pytorch import BYOL
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
@@ -33,7 +34,7 @@ class GEGLU(nn.Module):
         return x * F.gelu(gate)
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, dim_out = None, mult = 4, glu = False, dropout = 0.0):
+    def __init__(self, dim, dim_out = None, mult = 4, glu = False, dropout = 0.0, activation_fn = nn.Identity):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
@@ -45,7 +46,8 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             project_in,
             nn.Dropout(p=dropout),
-            nn.Linear(inner_dim, dim_out)
+            nn.Linear(inner_dim, dim_out),
+            activation_fn()
         )
     
     def forward(self, x):
@@ -98,6 +100,35 @@ class BasicEncoder(nn.Module):
     
     def forward(self, x):
         return self.encoder(x)
+    
+
+def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 10, hidden_layer = 'encoder.to_latent'):
+    learner = BYOL(net = model, image_size = 576, hidden_layer=hidden_layer, use_momentum = False).to(device)
+    opt = torch.optim.Adam(learner.parameters(), lr=3e-4)
+    print('Beginning pretraining of encoder')
+    best_encoder = None
+    best_loss = None
+    patience = 0
+    for edx in range(epochs):
+        batch_loss = 0
+        for bdx, i_batch in enumerate(dataloader):
+            batch_loss += learner(i_batch['feature'].to(device))
+        scalar_loss = batch_loss.item()
+        print('PRETRAINING: Epoch: {}, Loss: {}'.format(edx, scalar_loss))
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        if best_loss is None or scalar_loss < best_loss:
+            best_loss = scalar_loss
+            best_encoder = model.state_dict()
+            patience = 0
+        if patience > max_patience:
+            print('Out of patience. Breaking')
+            break
+        patience += 1
+    model.load_state_dict(best_encoder)
+    return model
+
 
 class AutoregressiveDecoder(nn.Module):
     def __init__(self, layer_count = 388, emb_dim = 8, dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1):
@@ -118,11 +149,8 @@ class AutoregressiveDecoder(nn.Module):
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
-        self.to_colors = FeedForward(self.latent_dim, dim_out=4)
-        self.to_positions = FeedForward(self.latent_dim, dim_out=8)
-        #self.to_classes = nn.Linear(self.latent_dim, self.layer_count)
-        #self.to_colors = nn.Linear(self.latent_dim, 4)
-        #self.to_positions = nn.Linear(self.latent_dim, 8)
+        self.to_colors = FeedForward(self.latent_dim, dim_out=4, activation_fn=nn.Hardsigmoid)
+        self.to_positions = FeedForward(self.latent_dim, dim_out=8, activation_fn=nn.Hardtanh)
 
     
     def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False):
@@ -155,7 +183,7 @@ class AutoregressiveDecoder(nn.Module):
         mask = [True]
         
         while len(out) <= max_len:
-            x = torch.unsqueeze(torch.from_numpy(np.asarray(out, dtype=np.int16)), dim=0).to(device)
+            x = torch.unsqueeze(torch.from_numpy(np.asarray(out, dtype=np.float32)), dim=0).to(device)
             out_mask = torch.unsqueeze(torch.from_numpy(np.asarray(mask, dtype=np.bool)), dim=0).to(device)
 
             out_embs, out_locs = torch.split(x, [1, x.shape[-1]-1], dim=-1)
@@ -165,7 +193,7 @@ class AutoregressiveDecoder(nn.Module):
             x += self.absolute_positional_embeddings[:x.shape[1],:]
             x = self.decoder(x, context=context, mask=out_mask)
             out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
-            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
+            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:].sigmoid(), out_positions[:,-1:,:].sigmoid()
             emb_idx = torch.topk(out_embs, 1)[1].item()
             out.append([emb_idx] + list(map(round, out_colors.squeeze().tolist())) + list(map(round, out_positions.squeeze().tolist())))
             mask.append(True)

@@ -1,6 +1,9 @@
 from collections import namedtuple
+import pickle
 
 import numpy as np
+
+from model.utils import convert_numpy_to_saml
 
 class WeightPair(object):
     def __init__(self, weights = None, name = None):
@@ -32,7 +35,6 @@ def write_saml(inpt):
     pass
 
 if __name__ == '__main__':
-    embs = load_weights('weights.tsv', 'names.tsv')
-    print(len(embs[0].weight))
-    inpt = np.load('testing.npy')
-    decode(inpt, embs)
+    with open('vocab.pkl', 'rb') as f:
+        vocab = pickle.load(f)
+    convert_numpy_to_saml('test.npy', vocab)

@@ -13,9 +13,9 @@ def clamp_array(arr):
     # Color bound = 0-255
     # Layer type = Ignore
     assert len(arr) == 13, 'Layer array must be of length 13'
-    assert type(arr[0]) == np.float32, 'Array values must all be of type float'
-    arr[1:5] = arr[1:5] / 255
-    arr[5:] = (arr[5:] + 127) / (127 * 2)
+    #assert type(arr[0]) == np.float32, 'Array values must all be of type float'
+    arr[1:5] = [(x - 1.0) / 255.0 for x in arr[1:5]]
+    arr[5:] = [x/127.0 for x in arr[5:]]
     return arr
 
 
@@ -40,8 +40,8 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         ltx, lty, lbx, lby = attribs['ltx'], attribs['lty'], attribs['lbx'], attribs['lby']
         rtx, rty, rbx, rby = attribs['rtx'], attribs['rty'], attribs['rbx'], attribs['rby']
         if attribs['visible'] == 'true':
-            cur_line = np.asarray(list(map(int, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby])), dtype=np.float32)
-            saml_lines.append(clamp_array(cur_line))
+            cur_line = list(map(float, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby]))
+            saml_lines.append(np.asarray(clamp_array(cur_line), dtype=np.float32))
             saml_mask.append(True)
         if verbose:
             print('Layer #{}'.format(ldx+1))

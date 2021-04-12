@@ -17,11 +17,72 @@ from vit_pytorch.vit import Transformer
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
 
-from model.model import BasicEncoder, AutoregressiveDecoder
+from model.model import BasicEncoder, AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
 
 load_dotenv()
+
+def make_encoder(force_new = False):
+    if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt') and not force_new:
+        with open('encoder_meta.json', 'r') as f:
+            metadata = json.load(f)
+        encoder = BasicEncoder(
+            dim = metadata['dim'],
+            patch_size = metadata['patch_size'],
+            e_depth = metadata['e_depth'],
+            e_heads = metadata['e_heads']
+        )
+        encoder.load_state_dict(torch.load('encoder.pt'))
+    else:
+        with open('encoder_meta.json', 'w') as f:
+            metadata = {
+                'dim': int(os.getenv('DIM', 128)),
+                'patch_size': int(os.getenv('PATCH_SIZE', 32)),
+                'e_depth': int(os.getenv('E_DEPTH', 6)),
+                'e_heads': int(os.getenv('E_HEADS', 8))
+            }
+            json.dump(metadata, f)
+
+        encoder = BasicEncoder(
+            dim = metadata['dim'],
+            patch_size = metadata['patch_size'],
+            e_depth = metadata['e_depth'],
+            e_heads = metadata['e_heads']
+        )
+    return encoder
+
+def make_decoder(vocab, force_new = False):
+    if os.path.exists('decoder_meta.json') and os.path.exists('decoder.pt') and not force_new:
+        with open('decoder_meta.json', 'r') as f:
+            metadata = json.load(f)
+        decoder = AutoregressiveDecoder(
+            layer_count = metadata['layer_count'],
+            emb_dim = metadata['emb_dim'],
+            d_depth = metadata['d_depth'],
+            d_heads = metadata['d_heads'],
+            emb_drop = metadata['emb_drop']
+        )
+        decoder.load_state_dict(torch.load('decoder.pt'))
+    else:
+        with open('decoder_meta.json', 'w') as f:
+            metadata = {
+                'layer_count': len(vocab),
+                'emb_dim': int(os.getenv('EMB_DIM', 8)),
+                'd_depth': int(os.getenv('D_DEPTH', 6)),
+                'd_heads': int(os.getenv('D_HEADS', 8)),
+                'emb_drop': float(os.getenv('EMB_DROP', 0.0))
+            }
+            json.dump(metadata, f)
+
+        decoder = AutoregressiveDecoder(
+            layer_count = metadata['layer_count'],
+            emb_dim = metadata['emb_dim'],
+            d_depth = metadata['d_depth'],
+            d_heads = metadata['d_heads'],
+            emb_drop = metadata['emb_drop']
+        )
+    return decoder
 
 def main():
     if torch.cuda.is_available():
@@ -34,38 +95,11 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    encoder = BasicEncoder(
-        dim= int(os.getenv('DIM', 128)),
-        patch_size= int(os.getenv('PATCH_SIZE', 32)),
-        e_depth = int(os.getenv('E_DEPTH', 6)),
-        e_heads = int(os.getenv('E_HEADS', 8)),
-    ).to(device)
-    decoder = AutoregressiveDecoder(
-        layer_count = len(vocab),
-        emb_dim = int(os.getenv('EMB_DIM', 8)),
-        dim= int(os.getenv('DIM', 128)),
-        d_depth = int(os.getenv('D_DEPTH', 6)),
-        d_heads = int(os.getenv('D_HEADS', 8)),
-    ).to(device)
-    if os.path.exists('encoder.pt'):
-        print('Loading existing encoder')
-        encoder.load_state_dict(torch.load('encoder.pt'))
-    if os.path.exists('decoder.pt'):
-        print('Loading existing decoder')
-        decoder.load_state_dict(torch.load('decoder.pt'))
-    with open('meta.json', 'w') as f:
-        info = {
-            'dim': int(os.getenv('DIM', 128)),
-            'patch_size': int(os.getenv('PATCH_SIZE', 32)),
-            'e_depth': int(os.getenv('E_DEPTH', 6)),
-            'e_heads': int(os.getenv('E_HEADS', 8)),
-            'layer_count': len(vocab),
-            'emb_dim': int(os.getenv('EMB_DIM', 8)),
-            'd_depth': int(os.getenv('D_DEPTH', 6)),
-            'd_heads': int(os.getenv('D_HEADS', 8)),
-            'emb_drop': float(os.getenv('EMB_DROP', 0.0))
-        }
-        json.dump(info, f)
+    if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt'):
+        with open('encoder_meta.json', 'r') as f:
+            encoder_dict
+    encoder = make_encoder(force_new=True).to(device)
+    decoder = make_decoder(vocab, force_new=True).to(device)
     print(encoder, flush=True)
     trainable, untrainable = get_parameter_count(encoder)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
@@ -75,6 +109,9 @@ def main():
     
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+
+    encoder = pretrain_encoder(encoder, dataloader, device)
+    return
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
