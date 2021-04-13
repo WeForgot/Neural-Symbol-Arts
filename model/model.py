@@ -47,6 +47,7 @@ class FeedForward(nn.Module):
             project_in,
             nn.Dropout(p=dropout),
             nn.Linear(inner_dim, dim_out),
+            nn.LayerNorm(dim_out),
             activation_fn()
         )
     
