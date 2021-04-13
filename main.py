@@ -200,7 +200,7 @@ def main():
                     total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
-                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss), flush=True)
+                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, min_loss), flush=True)
                 losses.append(batch_emb_loss.item() + batch_color_loss.item() + batch_position_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
