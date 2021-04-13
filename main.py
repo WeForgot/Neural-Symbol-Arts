@@ -192,9 +192,9 @@ def main():
                     total_loss.backward()
                     alpha *= alpha_decay
                 elif use_experimental_loss:
-                    batch_emb_loss = min_loss * (batch_emb_loss / scalar_emb_loss.item())
-                    batch_color_loss = min_loss * (batch_color_loss / scalar_color_loss.item())
-                    batch_position_loss = min_loss * (batch_position_loss / scalar_position_loss.item())
+                    batch_emb_loss = min_loss * (batch_emb_loss / scalar_emb_loss)
+                    batch_color_loss = min_loss * (batch_color_loss / scalar_color_loss)
+                    batch_position_loss = min_loss * (batch_position_loss / scalar_position_loss)
                 else:
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
