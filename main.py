@@ -23,6 +23,10 @@ from model.utils import get_parameter_count, Vocabulary
 
 load_dotenv()
 
+def freeze_model(model, freeze=True):
+   for param in model.parameters():
+      param.requires_grad = not freeze
+
 def make_encoder(force_new = False):
     if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt') and not force_new:
         with open('encoder_meta.json', 'r') as f:
@@ -110,7 +114,7 @@ def main():
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, drop_last=True)
 
-    #encoder = pretrain_encoder(encoder, dataloader, device)
+    encoder = pretrain_encoder(encoder, dataloader, device)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -145,6 +149,7 @@ def main():
     batch_metrics = True
     use_blended_loss = False
     use_switch_loss = False
+    encoder_warmup = 20
     max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
@@ -155,8 +160,14 @@ def main():
     else:
         loss_func = lambda x: max(x)
     with open('train_metrics.csv', 'w') as f:
+        if encoder_warmup > 0:
+           print('Freezing encoder for {} generations'.format(encoder_warmup))
+           freeze_model(encoder, freeze = True)
         for edx in range(max_epochs):
             losses = []
+            if edx == encoder_warmup:
+               print('Unfreezing encoder')
+               freeze_model(encoder, freeze = False)
             for bdx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 batch_emb_loss = 0

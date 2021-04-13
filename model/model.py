@@ -118,7 +118,7 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 10,
         scalar_loss = batch_loss.item()
         print('PRETRAINING: Epoch: {}, Loss: {}'.format(edx, scalar_loss))
         opt.zero_grad()
-        loss.backward()
+        batch_loss.backward()
         opt.step()
         if best_loss is None or scalar_loss < best_loss:
             best_loss = scalar_loss
