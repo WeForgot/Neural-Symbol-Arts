@@ -196,7 +196,7 @@ def main():
                 elif use_experimental_loss:
                     scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
                     batch_emb_loss = scaled_loss * (batch_emb_loss / scalar_emb_loss)
-                    batch_color_loss = minscaled_loss_loss * (batch_color_loss / scalar_color_loss)
+                    batch_color_loss = scaled_loss * (batch_color_loss / scalar_color_loss)
                     batch_position_loss = scaled_loss * (batch_position_loss / scalar_position_loss)
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
