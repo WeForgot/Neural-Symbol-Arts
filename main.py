@@ -1,4 +1,5 @@
 import json
+from statistics import mean
 import os
 import pickle
 import random
@@ -149,6 +150,7 @@ def main():
     batch_metrics = True
     use_blended_loss = False
     use_experimental_loss = True
+    use_min_loss = False
     alpha = 0.99
     alpha_decay = 0.001
     encoder_warmup = 20
@@ -186,21 +188,21 @@ def main():
                 scalar_emb_loss = batch_emb_loss.item()
                 scalar_color_loss = batch_color_loss.item()
                 scalar_position_loss = batch_position_loss.item()
-                min_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss)
+                scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
                 if use_blended_loss:
                     total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
                     total_loss.backward()
                     alpha *= alpha_decay
                 elif use_experimental_loss:
-                    batch_emb_loss = min_loss * (batch_emb_loss / scalar_emb_loss)
-                    batch_color_loss = min_loss * (batch_color_loss / scalar_color_loss)
-                    batch_position_loss = min_loss * (batch_position_loss / scalar_position_loss)
+                    batch_emb_loss = scaled_loss * (batch_emb_loss / scalar_emb_loss)
+                    batch_color_loss = minscaled_loss_loss * (batch_color_loss / scalar_color_loss)
+                    batch_position_loss = scaled_loss * (batch_position_loss / scalar_position_loss)
                 else:
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
-                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, min_loss), flush=True)
+                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
                 losses.append(batch_emb_loss.item() + batch_color_loss.item() + batch_position_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
