@@ -177,9 +177,9 @@ def main():
                 batch_emb_loss = 0
                 batch_color_loss = 0
                 batch_position_loss = 0
-                enc = encoder(feature)
                 encoder_opt.zero_grad()
                 decoder_opt.zero_grad()
+                enc = encoder(feature)
                 for idx in range(2, len(label[0])):
                     emb_loss, color_loss, pos_loss = decoder(label[:,:idx],mask[:,:idx], context=enc, return_both_loss=True)
                     batch_emb_loss += emb_loss
@@ -188,15 +188,18 @@ def main():
                 scalar_emb_loss = batch_emb_loss.item()
                 scalar_color_loss = batch_color_loss.item()
                 scalar_position_loss = batch_position_loss.item()
-                scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
+                
                 if use_blended_loss:
                     total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
                     total_loss.backward()
                     alpha *= alpha_decay
                 elif use_experimental_loss:
+                    scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
                     batch_emb_loss = scaled_loss * (batch_emb_loss / scalar_emb_loss)
                     batch_color_loss = minscaled_loss_loss * (batch_color_loss / scalar_color_loss)
                     batch_position_loss = scaled_loss * (batch_position_loss / scalar_position_loss)
+                    total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
+                    total_loss.backward()
                 else:
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
