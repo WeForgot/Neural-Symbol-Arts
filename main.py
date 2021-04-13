@@ -183,21 +183,24 @@ def main():
                     batch_emb_loss += emb_loss
                     batch_color_loss += color_loss
                     batch_position_loss += pos_loss
+                scalar_emb_loss = batch_emb_loss.item()
+                scalar_color_loss = batch_color_loss.item()
+                scalar_position_loss = batch_position_loss.item()
+                min_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss)
                 if use_blended_loss:
                     total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
                     total_loss.backward()
                     alpha *= alpha_decay
                 elif use_experimental_loss:
-                    min_loss = min(batch_emb_loss.item(), batch_color_loss.item(), batch_position_loss.item())
-                    batch_emb_loss = min_loss * (batch_emb_loss / batch_emb_loss.item())
-                    batch_color_loss = min_loss * (batch_color_loss / batch_color_loss.item())
-                    batch_position_loss = min_loss * (batch_position_loss / batch_position_loss.item())
+                    batch_emb_loss = min_loss * (batch_emb_loss / scalar_emb_loss.item())
+                    batch_color_loss = min_loss * (batch_color_loss / scalar_color_loss.item())
+                    batch_position_loss = min_loss * (batch_position_loss / scalar_position_loss.item())
                 else:
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
                 encoder_opt.step()
                 decoder_opt.step()
-                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_emb_loss, batch_color_loss, batch_position_loss), flush=True)
+                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss), flush=True)
                 losses.append(batch_emb_loss.item() + batch_color_loss.item() + batch_position_loss.item())
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
