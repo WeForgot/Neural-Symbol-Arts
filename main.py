@@ -148,7 +148,7 @@ def main():
     best_decoder = None
     batch_metrics = True
     use_blended_loss = False
-    use_switch_loss = False
+    use_experimental_loss = True
     alpha = 0.99
     alpha_decay = 0.001
     encoder_warmup = 20
@@ -187,14 +187,11 @@ def main():
                     total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
                     total_loss.backward()
                     alpha *= alpha_decay
-                elif use_switch_loss:
-                    chance = random.choice([1, 2, 3])
-                    if chance == 1:
-                        batch_emb_loss.backward()
-                    elif chance == 2:
-                        batch_color_loss.backward()
-                    else:
-                        batch_position_loss.backward()
+                elif use_experimental_loss:
+                    min_loss = min(batch_emb_loss.item(), batch_color_loss.item(), batch_position_loss.item())
+                    batch_emb_loss = min_loss * (batch_emb_loss / batch_emb_loss.item())
+                    batch_color_loss = min_loss * (batch_color_loss / batch_color_loss.item())
+                    batch_position_loss = min_loss * (batch_position_loss / batch_position_loss.item())
                 else:
                     total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
                     total_loss.backward()
