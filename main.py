@@ -149,6 +149,8 @@ def main():
     batch_metrics = True
     use_blended_loss = False
     use_switch_loss = False
+    alpha = 0.99
+    alpha_decay = 0.001
     encoder_warmup = 20
     max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
@@ -182,9 +184,9 @@ def main():
                     batch_color_loss += color_loss
                     batch_position_loss += pos_loss
                 if use_blended_loss:
-                    sum_losses = batch_emb_loss + batch_color_loss + batch_position_loss
-                    total_loss = (batch_emb_loss / sum_losses) + (batch_color_loss / sum_losses) + (batch_position_loss / sum_losses)
+                    total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
                     total_loss.backward()
+                    alpha *= alpha_decay
                 elif use_switch_loss:
                     chance = random.choice([1, 2, 3])
                     if chance == 1:
