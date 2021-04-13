@@ -146,7 +146,9 @@ class AutoregressiveDecoder(nn.Module):
         self.decoder = Decoder(
             dim = self.latent_dim,
             depth = d_depth,
-            heads = d_heads
+            heads = d_heads,
+            ff_glu = True,
+            rel_pos_bias=True
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
