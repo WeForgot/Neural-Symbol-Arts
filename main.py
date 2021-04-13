@@ -110,8 +110,7 @@ def main():
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, drop_last=True)
 
-    encoder = pretrain_encoder(encoder, dataloader, device)
-    return
+    #encoder = pretrain_encoder(encoder, dataloader, device)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -172,9 +171,8 @@ def main():
                     batch_color_loss += color_loss
                     batch_position_loss += pos_loss
                 if use_blended_loss:
-                    scalar_losses = [batch_emb_loss.item(), batch_color_loss.item(), batch_position_loss.item()]
-                    alphas = [x / sum(scalar_losses) for x in scalar_losses]
-                    total_loss = batch_emb_loss * alphas[0] + batch_color_loss * alphas[1] + batch_position_loss * alphas[2]
+                    sum_losses = batch_emb_loss + batch_color_loss + batch_position_loss
+                    total_loss = (batch_emb_loss / sum_losses) + (batch_color_loss / sum_losses) + (batch_position_loss / sum_losses)
                     total_loss.backward()
                 elif use_switch_loss:
                     chance = random.choice([1, 2, 3])
