@@ -34,7 +34,7 @@ class GEGLU(nn.Module):
         return x * F.gelu(gate)
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, dim_out = None, mult = 4, glu = False, dropout = 0.0, activation_fn = nn.Identity):
+    def __init__(self, dim, dim_out = None, mult = 4, glu = False, dropout = 0.0):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
@@ -46,9 +46,7 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             project_in,
             nn.Dropout(p=dropout),
-            nn.Linear(inner_dim, dim_out),
-            nn.LayerNorm(dim_out),
-            activation_fn()
+            nn.Linear(inner_dim, dim_out)
         )
     
     def forward(self, x):
@@ -151,8 +149,8 @@ class AutoregressiveDecoder(nn.Module):
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
-        self.to_colors = FeedForward(self.latent_dim, dim_out=4, activation_fn=nn.Hardsigmoid)
-        self.to_positions = FeedForward(self.latent_dim, dim_out=8, activation_fn=nn.Hardtanh)
+        self.to_colors = FeedForward(self.latent_dim, dim_out=4)
+        self.to_positions = FeedForward(self.latent_dim, dim_out=8)
 
     
     def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False):
@@ -169,7 +167,7 @@ class AutoregressiveDecoder(nn.Module):
 
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid()
-        pred_posi = self.to_positions(x).sigmoid()
+        pred_posi = self.to_positions(x).tanh()
 
         if return_predictions:
             return pred_embs, pred_cols, pred_posi
