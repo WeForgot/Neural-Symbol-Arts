@@ -151,3 +151,4 @@ test.npy
 vocab.pkl
 data.pkl
 train_metrics.csv
+*.json
