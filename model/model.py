@@ -18,6 +18,8 @@ from vit_pytorch.vit import Transformer
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
 from byol_pytorch import BYOL
+from linear_attention_transformer import LinearAttentionTransformer
+from sinkhorn_transformer import SinkhornTransformer, Autopadder
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
@@ -143,12 +145,15 @@ class AutoregressiveDecoder(nn.Module):
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.absolute_positional_embeddings = nn.Parameter(torch.rand((self.max_seq_len, self.latent_dim)))
         self.emb_dropout = nn.Dropout(p=emb_drop)
+
         self.decoder = Decoder(
             dim = self.latent_dim,
             depth = d_depth,
             heads = d_heads,
             ff_glu = True,
-            rel_pos_bias=True
+            rel_pos_bias=True,
+            position_infused_attn=True,
+            attn_sparse_topk = 8
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
@@ -165,7 +170,7 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
-        y += self.absolute_positional_embeddings[:y.shape[1],:]
+        #y += self.absolute_positional_embeddings[:y.shape[1],:]
         x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
