@@ -225,7 +225,7 @@ def main():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking', flush=True)
                 break
-    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32)
+    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225))
