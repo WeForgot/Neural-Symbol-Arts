@@ -14,9 +14,8 @@ from torch.utils.data import DataLoader
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from vit_pytorch.efficient import ViT
+from vit_pytorch import ViT
 from x_transformers import Decoder
-from nystrom_attention import Nystromformer
 from byol_pytorch import BYOL
 
 from model.datasets import SADataset
@@ -54,17 +53,15 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class BasicEncoder(nn.Module):
-    def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8):
+    def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, mlp_dim = 128):
         super(BasicEncoder, self).__init__()
         self.encoder = ViT(
             image_size = 576,
             patch_size = patch_size,
             dim = dim,
-            transformer = Nystromformer(
-                dim = dim,
-                depth = e_depth,
-                heads = e_heads,
-            ),
+            depth = e_depth,
+            heads = e_heads,
+            mlp_dim = mlp_dim,
             num_classes = 1
         )
         self.encoder.mlp_head = nn.Identity()
