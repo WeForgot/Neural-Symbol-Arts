@@ -18,8 +18,6 @@ from vit_pytorch.vit import Transformer
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
 from byol_pytorch import BYOL
-from linear_attention_transformer import LinearAttentionTransformer
-from sinkhorn_transformer import SinkhornTransformer, Autopadder
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
