@@ -14,12 +14,10 @@ from torch.utils.data import DataLoader
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from vit_pytorch.vit import Transformer
+from vit_pytorch.efficient import ViT
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
 from byol_pytorch import BYOL
-from linear_attention_transformer import LinearAttentionTransformer
-from sinkhorn_transformer import SinkhornTransformer, Autopadder
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
@@ -55,37 +53,6 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-class ViT(nn.Module):
-    def __init__(self, *, image_size, patch_size, dim, transformer, pool = 'cls', channels = 3):
-        super().__init__()
-        assert image_size % patch_size == 0, 'image dimensions must be divisible by the patch size'
-        assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
-        num_patches = (image_size // patch_size) ** 2
-        patch_dim = channels * patch_size ** 2
-
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
-            nn.Linear(patch_dim, dim),
-        )
-
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
-        self.transformer = transformer
-
-        self.pool = pool
-        self.to_latent = nn.Identity()
-
-    def forward(self, img):
-        x = self.to_patch_embedding(img)
-        b, n, _ = x.shape
-
-        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b = b)
-        x = torch.cat((cls_tokens, x), dim=1)
-        x += self.pos_embedding[:, :(n + 1)]
-        x = self.transformer(x)
-
-        return self.to_latent(x)
-
 class BasicEncoder(nn.Module):
     def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8):
         super(BasicEncoder, self).__init__()
@@ -97,14 +64,16 @@ class BasicEncoder(nn.Module):
                 dim = dim,
                 depth = e_depth,
                 heads = e_heads,
-            )
+            ),
+            num_classes = 1
         )
+        self.encoder.mlp_head = nn.Identity()
     
     def forward(self, x):
         return self.encoder(x)
     
 
-def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 10, hidden_layer = 'encoder.to_latent'):
+def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15, hidden_layer = 'encoder.to_latent'):
     learner = BYOL(net = model, image_size = 576, hidden_layer=hidden_layer, use_momentum = False).to(device)
     opt = torch.optim.Adam(learner.parameters(), lr=3e-4)
     print('Beginning pretraining of encoder')
@@ -112,17 +81,17 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 10,
     best_loss = None
     patience = 0
     for edx in range(epochs):
-        batch_loss = 0
+        running_loss = 0
         for bdx, i_batch in enumerate(dataloader):
+            opt.zero_grad()
             feature = i_batch['feature'].to(device)
-            batch_loss += learner(i_batch['feature'].to(device))
-        scalar_loss = batch_loss.item()
-        print('PRETRAINING: Epoch: {}, Loss: {}'.format(edx, scalar_loss))
-        opt.zero_grad()
-        batch_loss.backward()
-        opt.step()
-        if best_loss is None or scalar_loss < best_loss:
-            best_loss = scalar_loss
+            batch_loss = learner(i_batch['feature'].to(device))
+            running_loss += batch_loss.item()
+            batch_loss.backward()
+            opt.step()
+        print('PRETRAINING: Epoch: {}, Loss: {}'.format(edx, running_loss))
+        if best_loss is None or running_loss < best_loss:
+            best_loss = running_loss
             best_encoder = model.state_dict()
             patience = 0
         if patience > max_patience:
