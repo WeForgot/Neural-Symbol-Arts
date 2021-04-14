@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from vit_pytorch.vit import Transformer
 from x_transformers import Decoder
 from nystrom_attention import Nystromformer
 
