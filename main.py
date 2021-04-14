@@ -172,7 +172,7 @@ def main():
                 decoder_opt.zero_grad()
 
                 enc = encoder(feature)
-                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True,nn.functional.mse_loss)
+                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss)
 
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
