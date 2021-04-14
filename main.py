@@ -111,8 +111,10 @@ def main():
     
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
+    should_pretrain = True if os.getenv('PRETRAIN_ENCODER', 'False').lower() == 'true' else False
 
-    #encoder = pretrain_encoder(encoder, dataloader, device)
+    if should_pretrain:
+        encoder = pretrain_encoder(encoder, dataloader, device)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -160,12 +162,12 @@ def main():
     else:
         loss_func = lambda x: max(x)
     with open('train_metrics.csv', 'w') as f:
-        if encoder_warmup > 0:
+        if should_pretrain and should_pretrainencoder_warmup > 0:
            print('Freezing encoder for {} generations'.format(encoder_warmup))
            freeze_model(encoder, freeze = True)
         for edx in range(max_epochs):
             losses = []
-            if edx == encoder_warmup:
+            if should_pretrain and edx == encoder_warmup:
                print('Unfreezing encoder')
                freeze_model(encoder, freeze = False)
             for bdx, i_batch in enumerate(dataloader):
