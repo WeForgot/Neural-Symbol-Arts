@@ -134,11 +134,11 @@ class AutoregressiveDecoder(nn.Module):
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
-        self.to_colors = FeedForward(self.latent_dim, dim_out=4)
-        self.to_positions = FeedForward(self.latent_dim, dim_out=8)
+        self.to_colors = FeedForward(self.latent_dim, dim_out=4, glu=True, dropout=0.1)
+        self.to_positions = FeedForward(self.latent_dim, dim_out=8, glu=True, dropout=0.1)
 
     
-    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False):
+    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.l1_loss):
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
@@ -151,14 +151,14 @@ class AutoregressiveDecoder(nn.Module):
         x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
-        pred_cols = self.to_colors(x).sigmoid()
-        pred_posi = self.to_positions(x).tanh()
+        pred_cols = self.to_colors(x)
+        pred_posi = self.to_positions(x)
 
         if return_predictions:
             return pred_embs, pred_cols, pred_posi
         if return_both_loss:
-            return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), F.l1_loss(pred_cols, label_cols), F.l1_loss(pred_posi, label_posi)
-        return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + F.l1_loss(pred_cols, label_cols) + F.l1_loss(pred_posi, label_posi)
+            return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), loss_func(pred_cols, label_cols), loss_func(pred_posi, label_posi)
+        return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
     
     @torch.no_grad()
     def generate(self, context, vocab, max_len):
