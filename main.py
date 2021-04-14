@@ -148,7 +148,7 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True
-    use_scaled_loss = True
+    use_scaled_loss = False
     use_min_loss = False
     alpha = 0.99
     alpha_decay = 0.001
@@ -172,7 +172,7 @@ def main():
                 decoder_opt.zero_grad()
 
                 enc = encoder(feature)
-                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True)
+                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True,nn.functional.mse_loss)
 
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
