@@ -147,7 +147,7 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
-        #y += self.absolute_positional_embeddings[:y.shape[1],:]
+        y += self.absolute_positional_embeddings[:y.shape[1],:]
         x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
