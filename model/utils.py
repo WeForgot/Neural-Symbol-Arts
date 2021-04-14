@@ -79,40 +79,41 @@ def convert_numpy_to_saml(source_path, vocab, dest_path=None):
     if dest_path is None:
         dest_path = source_path[:-3] + 'saml'
     
-    data = np.load(source_path).astype(np.int32)
-    xml_data = ET.Element('sa')
-    #sa name="さっきゅん" visible="true" version="1" author="10716288" width="192" height="96" sound="3"
-    xml_data.set('name', 'Test')
-    xml_data.set('visible', 'true')
-    xml_data.set('version', '1')
-    xml_data.set('author', '1337')
-    xml_data.set('width', '192')
-    xml_data.set('height', '96')
-    xml_data.set('sound', '1')
-    for ldx, line in enumerate(data):
-        if vocab[int(line[0])] == '<SOS>':
-            continue
-        if vocab[int(line[0])] == '<EOS>':
-            break
-        layer = ET.SubElement(xml_data, 'layer')
-        layer.set('name', 'Symbol {}'.format(ldx))
-        layer.set('visible', 'true')
-        layer.set('type', '{}'.format(vocab[int(line[0])]))
-        color_tup = [line[1], line[2], line[3]]
-        color_tup = [int(x * 255) for x in color_tup]
-        color_tup = rgb_to_hex(color_tup)
-        layer.set('color', str(color_tup))
-        layer.set('alpha', str(max(int(line[4]*255), 1)))
-        positions = list(map(lambda x: str(int((x * 2 * 127) - 127)), line[5:]))
-        layer.set('ltx', positions[0])
-        layer.set('lty', positions[1])
-        layer.set('lbx', positions[2])
-        layer.set('lby', positions[3])
-        layer.set('rtx', positions[4])
-        layer.set('rty', positions[5])
-        layer.set('rbx', positions[6])
-        layer.set('rby', positions[7])
     with open(dest_path, 'w') as f:
+        f.write('<?xml version="1.0" encoding="utf-8"?>\n')
+        data = np.load(source_path)
+        xml_data = ET.Element('sa')
+        #sa name="さっきゅん" visible="true" version="1" author="10716288" width="192" height="96" sound="3"
+        xml_data.set('name', 'Test')
+        xml_data.set('visible', 'true')
+        xml_data.set('version', '1')
+        xml_data.set('author', '1337')
+        xml_data.set('width', '192')
+        xml_data.set('height', '96')
+        xml_data.set('sound', '1')
+        for ldx, line in enumerate(data):
+            if vocab[int(line[0])] == '<SOS>':
+                continue
+            if vocab[int(line[0])] == '<EOS>':
+                break
+            layer = ET.SubElement(xml_data, 'layer')
+            layer.set('name', 'Symbol {}'.format(ldx))
+            layer.set('visible', 'true')
+            layer.set('type', '{}'.format(vocab[int(line[0])]))
+            color_tup = [line[1], line[2], line[3]]
+            color_tup = [int(x * 255) for x in color_tup]
+            color_tup = rgb_to_hex(color_tup)
+            layer.set('color', str(color_tup))
+            layer.set('alpha', str(max(1, int(line[4]*255))))
+            positions = list(map(lambda x: str(int((x * 127))), line[5:]))
+            layer.set('ltx', positions[0])
+            layer.set('lty', positions[1])
+            layer.set('lbx', positions[2])
+            layer.set('lby', positions[3])
+            layer.set('rtx', positions[4])
+            layer.set('rty', positions[5])
+            layer.set('rbx', positions[6])
+            layer.set('rby', positions[7])
         f.write(ET.tostring(xml_data, pretty_print=True).decode('utf8'))
 
 

@@ -100,9 +100,6 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt'):
-        with open('encoder_meta.json', 'r') as f:
-            encoder_dict
     encoder = make_encoder(force_new=True).to(device)
     decoder = make_decoder(vocab, force_new=True).to(device)
     print(encoder, flush=True)
@@ -113,9 +110,9 @@ def main():
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
     dataset = SADataset(data)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, drop_last=True)
+    dataloader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
 
-    encoder = pretrain_encoder(encoder, dataloader, device)
+    #encoder = pretrain_encoder(encoder, dataloader, device)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -148,8 +145,7 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True
-    use_blended_loss = False
-    use_experimental_loss = True
+    use_scaled_loss = True
     use_min_loss = False
     alpha = 0.99
     alpha_decay = 0.001
@@ -174,39 +170,31 @@ def main():
                freeze_model(encoder, freeze = False)
             for bdx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                batch_emb_loss = 0
-                batch_color_loss = 0
-                batch_position_loss = 0
+
                 encoder_opt.zero_grad()
                 decoder_opt.zero_grad()
+
                 enc = encoder(feature)
-                for idx in range(2, len(label[0])):
-                    emb_loss, color_loss, pos_loss = decoder(label[:,:idx],mask[:,:idx], context=enc, return_both_loss=True)
-                    batch_emb_loss += emb_loss
-                    batch_color_loss += color_loss
-                    batch_position_loss += pos_loss
-                scalar_emb_loss = batch_emb_loss.item()
-                scalar_color_loss = batch_color_loss.item()
-                scalar_position_loss = batch_position_loss.item()
-                
-                if use_blended_loss:
-                    total_loss = (batch_emb_loss * (1 - alpha)) + (batch_color_loss * (alpha / 2)) + (batch_position_loss * (alpha / 2))
-                    total_loss.backward()
-                    alpha *= alpha_decay
-                elif use_experimental_loss:
-                    scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
-                    batch_emb_loss = scaled_loss * (batch_emb_loss / scalar_emb_loss)
-                    batch_color_loss = scaled_loss * (batch_color_loss / scalar_color_loss)
-                    batch_position_loss = scaled_loss * (batch_position_loss / scalar_position_loss)
-                    total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
-                    total_loss.backward()
-                else:
-                    total_loss = batch_emb_loss + batch_color_loss + batch_position_loss
-                    total_loss.backward()
+                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True)
+
+                scalar_emb_loss = emb_loss.item()
+                scalar_color_loss = color_loss.item()
+                scalar_position_loss = pos_loss.item()
+                scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
+
+                if use_scaled_loss:
+                    emb_loss = scaled_loss * (emb_loss / scalar_emb_loss)
+                    color_loss = scaled_loss * (color_loss / scalar_color_loss)
+                    pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
+                total_loss = emb_loss + color_loss + pos_loss
+                total_loss.backward()
+
                 encoder_opt.step()
                 decoder_opt.step()
+
                 print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
-                losses.append(batch_emb_loss.item() + batch_color_loss.item() + batch_position_loss.item())
+                losses.append(total_loss.item())
+                dataloader.dataset.new_rand()
             loss_val = loss_func(losses)
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()

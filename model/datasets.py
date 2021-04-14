@@ -118,6 +118,11 @@ class LayersDataset(Dataset):
 class SADataset(Dataset):
     def __init__(self, data):
         self.data = data
+        self.rand_max = len(data[0]['label'])
+        self.cur_rand = random.randint(2, self.rand_max)
+    
+    def new_rand(self):
+        self.cur_rand = random.randint(2, self.rand_max-1)
     
     def __len__(self):
         return len(self.data)
@@ -126,6 +131,7 @@ class SADataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         cur_data = self.data[idx]
-        feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32), cur_data['label'], cur_data['mask']
+        rand_end = random.randint(2,len(cur_data['label']))
+        feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32), cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
         feature, label, mask = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32)), torch.from_numpy(label.astype(np.float32)), torch.from_numpy(mask)
         return {'feature': feature, 'label': label, 'mask': mask}

@@ -196,12 +196,11 @@ class AutoregressiveDecoder(nn.Module):
             x += self.absolute_positional_embeddings[:x.shape[1],:]
             x = self.decoder(x, context=context, mask=out_mask)
             out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
-            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:].sigmoid(), out_positions[:,-1:,:].sigmoid()
+            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:].sigmoid(), out_positions[:,-1:,:].tanh()
             emb_idx = torch.topk(out_embs, 1)[1].item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
             if emb_idx == eos_token:
                 break
-        if out[-1][0] != eos_token:
-            out.append([eos_token] + [0] * 12)
+        out = out[1:]
         return np.asarray(out)
