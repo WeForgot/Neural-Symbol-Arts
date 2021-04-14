@@ -27,7 +27,7 @@ def freeze_model(model, freeze=True):
    for param in model.parameters():
       param.requires_grad = not freeze
 
-def make_encoder(force_new = False):
+def make_encoder(force_new = False, encoder_type = 'vit'):
     if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt') and not force_new:
         with open('encoder_meta.json', 'r') as f:
             metadata = json.load(f)
@@ -35,7 +35,9 @@ def make_encoder(force_new = False):
             dim = metadata['dim'],
             patch_size = metadata['patch_size'],
             e_depth = metadata['e_depth'],
-            e_heads = metadata['e_heads']
+            e_heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim'],
+            encoder_type = metadata['encoder_type']
         )
         encoder.load_state_dict(torch.load('encoder.pt'))
     else:
@@ -44,7 +46,9 @@ def make_encoder(force_new = False):
                 'dim': int(os.getenv('DIM', 128)),
                 'patch_size': int(os.getenv('PATCH_SIZE', 32)),
                 'e_depth': int(os.getenv('E_DEPTH', 6)),
-                'e_heads': int(os.getenv('E_HEADS', 8))
+                'e_heads': int(os.getenv('E_HEADS', 8)),
+                'encoder_type': os.getenv('E_TYPE', 'vit'),
+                'mlp_dim': int(os.getenv('MLP_DIM', 128))
             }
             json.dump(metadata, f)
 
@@ -52,7 +56,9 @@ def make_encoder(force_new = False):
             dim = metadata['dim'],
             patch_size = metadata['patch_size'],
             e_depth = metadata['e_depth'],
-            e_heads = metadata['e_heads']
+            e_heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim'],
+            encoder_type = metadata['encoder_type']
         )
     return encoder
 
@@ -99,7 +105,7 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    encoder = make_encoder(force_new=True).to(device)
+    encoder = make_encoder(force_new=True, encoder_type = 'cvt').to(device)
     decoder = make_decoder(vocab, force_new=True).to(device)
     print(encoder, flush=True)
     trainable, untrainable = get_parameter_count(encoder)
@@ -110,10 +116,6 @@ def main():
     
     dataset = SADataset(data)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
-    should_pretrain = True if os.getenv('PRETRAIN_ENCODER', 'False').lower() == 'true' else False
-
-    if should_pretrain:
-        encoder = pretrain_encoder(encoder, dataloader, device)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -161,14 +163,8 @@ def main():
     else:
         loss_func = lambda x: max(x)
     with open('train_metrics.csv', 'w') as f:
-        if should_pretrain and encoder_warmup > 0:
-           print('Freezing encoder for {} generations'.format(encoder_warmup))
-           freeze_model(encoder, freeze = True)
         for edx in range(max_epochs):
             losses = []
-            if should_pretrain and edx == encoder_warmup:
-               print('Unfreezing encoder')
-               freeze_model(encoder, freeze = False)
             for bdx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 

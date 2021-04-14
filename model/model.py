@@ -15,6 +15,8 @@ from torch.utils.data import DataLoader
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from vit_pytorch import ViT
+from vit_pytorch.cvt import CvT
+from vit_pytorch.mpp import MPP
 from x_transformers import Decoder
 from byol_pytorch import BYOL
 
@@ -53,24 +55,33 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class BasicEncoder(nn.Module):
-    def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, mlp_dim = 128):
+    def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, mlp_dim = 128, encoder_type = 'vit'):
         super(BasicEncoder, self).__init__()
-        self.encoder = ViT(
-            image_size = 576,
-            patch_size = patch_size,
-            dim = dim,
-            depth = e_depth,
-            heads = e_heads,
-            mlp_dim = mlp_dim,
-            num_classes = 1
-        )
-        self.encoder.mlp_head = nn.Identity()
-    
+        if encoder_type == 'cvt':
+            print('Using CvT as encoder')
+            self.encoder = CvT(
+            num_classes = 1,
+            )
+            self.encoder.layers[-1] = nn.Identity()
+            self.encoder.layers[-2] = nn.Identity()
+        else:
+            print('Using ViT as encoder')
+            self.encoder = ViT(
+                image_size = 576,
+                patch_size = patch_size,
+                dim = dim,
+                depth = e_depth,
+                heads = e_heads,
+                mlp_dim = mlp_dim,
+                num_classes = 1
+            )
+            self.encoder.mlp_head = nn.Identity()
+        
     def forward(self, x):
         return self.encoder(x)
     
 
-def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15, hidden_layer = 'encoder.to_latent'):
+def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15, hidden_layer = -1):
     learner = BYOL(net = model, image_size = 576, hidden_layer=hidden_layer, use_momentum = False).to(device)
     opt = torch.optim.Adam(learner.parameters(), lr=3e-4)
     print('Beginning pretraining of encoder')
