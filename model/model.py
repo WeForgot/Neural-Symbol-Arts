@@ -153,7 +153,7 @@ class AutoregressiveDecoder(nn.Module):
             ff_glu = True,
             rel_pos_bias=True,
             position_infused_attn=True,
-            attn_sparse_topk = 8
+            attn_talking_heads = True
         )
 
         self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
