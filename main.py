@@ -67,6 +67,7 @@ def make_decoder(vocab, force_new = False):
         with open('decoder_meta.json', 'r') as f:
             metadata = json.load(f)
         decoder = AutoregressiveDecoder(
+            d_dim = metadata['dim'],
             layer_count = metadata['layer_count'],
             emb_dim = metadata['emb_dim'],
             d_depth = metadata['d_depth'],
@@ -78,6 +79,7 @@ def make_decoder(vocab, force_new = False):
         with open('decoder_meta.json', 'w') as f:
             metadata = {
                 'layer_count': len(vocab),
+                'dim': int(os.getenv('DIM', 32)),
                 'emb_dim': int(os.getenv('EMB_DIM', 8)),
                 'd_depth': int(os.getenv('D_DEPTH', 6)),
                 'd_heads': int(os.getenv('D_HEADS', 8)),

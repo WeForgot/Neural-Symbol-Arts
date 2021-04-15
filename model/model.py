@@ -111,19 +111,21 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15,
 
 
 class AutoregressiveDecoder(nn.Module):
-    def __init__(self, layer_count = 388, emb_dim = 8, dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1):
+    def __init__(self, layer_count = 388, emb_dim = 8, d_dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1):
         super(AutoregressiveDecoder, self).__init__()
         self.layer_count = layer_count
         self.emb_dim = emb_dim
+        self.d_dim = d_dim
         self.latent_dim = emb_dim + 12
         self.logit_dim = layer_count + 12
         self.max_seq_len = 225
 
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
+        self.projection = nn.Linear(self.latent_dim, d_dim)
 
         self.decoder = Decoder(
-            dim = self.latent_dim,
+            dim = d_dim,
             depth = d_depth,
             heads = d_heads,
             ff_glu = True,
@@ -146,6 +148,7 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
+        y = self.projection(y)
         x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
