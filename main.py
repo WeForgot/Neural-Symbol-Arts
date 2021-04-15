@@ -19,7 +19,7 @@ from nystrom_attention import Nystromformer
 
 from model.model import BasicEncoder, AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
-from model.utils import get_parameter_count, Vocabulary
+from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml
 
 load_dotenv()
 
@@ -221,6 +221,7 @@ def main():
                 enc = encoder(feature.unsqueeze(0))
                 generated = np.asarray(decoder.generate(enc, vocab, 225))
                 np.save('test.npy', generated)
+                convert_numpy_to_saml('test.npy', vocab)
                 encoder.train()
                 decoder.train()
             
@@ -232,6 +233,7 @@ def main():
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225))
     np.save('test.npy', generated)
+    convert_numpy_to_saml('test.npy', vocab)
     print(generated, flush=True)
     print(generated.shape, flush=True)
 
