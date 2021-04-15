@@ -148,7 +148,9 @@ runs/
 # Various other things
 meta.json
 test.npy
+test.saml
 vocab.pkl
 data.pkl
 train_metrics.csv
 *.json
+checkpoints/
