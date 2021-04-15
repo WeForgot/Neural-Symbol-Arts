@@ -19,6 +19,8 @@ from vit_pytorch.cvt import CvT
 from vit_pytorch.mpp import MPP
 from x_transformers import Decoder
 from byol_pytorch import BYOL
+from routing_transformer import RoutingTransformer
+from sinkhorn_transformer import SinkhornTransformer, Autopadder
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
@@ -111,7 +113,7 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15,
 
 
 class AutoregressiveDecoder(nn.Module):
-    def __init__(self, layer_count = 388, emb_dim = 8, d_dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1):
+    def __init__(self, layer_count = 388, emb_dim = 8, d_dim = 16, d_depth = 12, d_heads = 8, emb_drop = 0.1, decoder_type = ''):
         super(AutoregressiveDecoder, self).__init__()
         self.layer_count = layer_count
         self.emb_dim = emb_dim
@@ -119,20 +121,30 @@ class AutoregressiveDecoder(nn.Module):
         self.latent_dim = emb_dim + 12
         self.logit_dim = layer_count + 12
         self.max_seq_len = 225
+        self.routing = False
 
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = nn.Linear(self.latent_dim, d_dim)
 
-        self.decoder = Decoder(
-            dim = d_dim,
-            depth = d_depth,
-            heads = d_heads,
-            ff_glu = True,
-            rel_pos_bias=True,
-            position_infused_attn=True,
-            attn_talking_heads = True
-        )
+        if decoder_type.lower() == 'routing':
+            self.decoder = RoutingTransformer(
+                dim = d_dim,
+                depth = d_depth,
+                max_seq_len = 256,
+                heads = d_heads,
+            )
+            self.routing = True
+        else:
+            self.decoder = Decoder(
+                dim = d_dim,
+                depth = d_depth,
+                heads = d_heads,
+                ff_glu = True,
+                rel_pos_bias=True,
+                position_infused_attn=True,
+                attn_talking_heads = True
+            )
 
         self.to_classes = FeedForward(d_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
         self.to_colors = FeedForward(d_dim, dim_out=4, glu=True, dropout=0.1)
@@ -149,18 +161,29 @@ class AutoregressiveDecoder(nn.Module):
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
         y = self.projection(y)
-        x = self.decoder(y, context=context, mask=feature_mask)
+        aux_loss = None
+        if self.routing:
+            x, aux_loss = self.decoder(y, context=context, mask=feature_mask)
+        else:
+            x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x)
         pred_posi = self.to_positions(x)
 
-        if return_predictions:
-            return pred_embs, pred_cols, pred_posi
-        if return_both_loss:
-            return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), loss_func(pred_cols, label_cols), loss_func(pred_posi, label_posi)
-        return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
-    
+        if self.routing:
+            if return_predictions:
+                return pred_embs, pred_cols, pred_posi, aux_loss
+            if return_both_loss:
+                return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), loss_func(pred_cols, label_cols), loss_func(pred_posi, label_posi), aux_loss
+            return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi) + aux_loss
+        else:
+            if return_predictions:
+                return pred_embs, pred_cols, pred_posi, None
+            if return_both_loss:
+                return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), loss_func(pred_cols, label_cols), loss_func(pred_posi, label_posi), None
+            return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
+
     @torch.no_grad()
     def generate(self, context, vocab, max_len):
         device = context.device
@@ -176,8 +199,9 @@ class AutoregressiveDecoder(nn.Module):
             out_embs = self.embedding_dim(out_embs.int()).squeeze(dim=2)
 
             x = torch.cat([out_embs, out_locs], dim=-1)
-            y = self.projection(y)
-            x = self.decoder(x, context=context, mask=out_mask)
+            x = self.projection(x)
+            x = self.decoder(x, context=context, mask=out_mask)[0] if self.routing else self.decoder(x, context=context, mask=out_mask)
+
             out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
             emb_idx = torch.topk(out_embs, 1)[1].item()

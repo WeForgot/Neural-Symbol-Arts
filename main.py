@@ -72,7 +72,8 @@ def make_decoder(vocab, force_new = False):
             emb_dim = metadata['emb_dim'],
             d_depth = metadata['d_depth'],
             d_heads = metadata['d_heads'],
-            emb_drop = metadata['emb_drop']
+            emb_drop = metadata['emb_drop'],
+            decoder_type = metadata['decoder_type']
         )
         decoder.load_state_dict(torch.load('decoder.pt'))
     else:
@@ -83,7 +84,8 @@ def make_decoder(vocab, force_new = False):
                 'emb_dim': int(os.getenv('EMB_DIM', 8)),
                 'd_depth': int(os.getenv('D_DEPTH', 6)),
                 'd_heads': int(os.getenv('D_HEADS', 8)),
-                'emb_drop': float(os.getenv('EMB_DROP', 0.0))
+                'emb_drop': float(os.getenv('EMB_DROP', 0.0)),
+                'decoder_type': os.getenv('D_TYPE', '')
             }
             json.dump(metadata, f)
 
@@ -92,7 +94,8 @@ def make_decoder(vocab, force_new = False):
             emb_dim = metadata['emb_dim'],
             d_depth = metadata['d_depth'],
             d_heads = metadata['d_heads'],
-            emb_drop = metadata['emb_drop']
+            emb_drop = metadata['emb_drop'],
+            decoder_type = metadata['decoder_type']
         )
     return decoder
 
@@ -175,7 +178,7 @@ def main():
                 decoder_opt.zero_grad()
 
                 enc = encoder(feature)
-                emb_loss, color_loss, pos_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss)
+                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss)
 
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
@@ -186,7 +189,7 @@ def main():
                     emb_loss = scaled_loss * (emb_loss / scalar_emb_loss)
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
-                total_loss = emb_loss + color_loss + pos_loss
+                total_loss = emb_loss + color_loss + pos_loss + (aux_loss if aux_loss is not None else 0)
                 total_loss.backward()
 
                 encoder_opt.step()
