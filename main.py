@@ -115,7 +115,8 @@ def main():
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
     dataset = SADataset(data)
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=True, drop_last=True)
+    batch_size = int(os.getenv('BATCH_SIZE', 2))
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -147,7 +148,7 @@ def main():
     best_loss = None
     best_encoder = None
     best_decoder = None
-    batch_metrics = True
+    batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
     use_scaled_loss = False
     use_min_loss = False
     alpha = 0.99
@@ -189,7 +190,8 @@ def main():
                 encoder_opt.step()
                 decoder_opt.step()
 
-                print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
+                if batch_metrics:
+                    print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
                 losses.append(total_loss.item())
                 dataloader.dataset.new_rand()
             loss_val = loss_func(losses)
