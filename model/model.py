@@ -175,7 +175,7 @@ class AutoregressiveDecoder(nn.Module):
             x = torch.cat([out_embs, out_locs], dim=-1)
             x = self.decoder(x, context=context, mask=out_mask)
             out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
-            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:].sigmoid(), out_positions[:,-1:,:].tanh()
+            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
             emb_idx = torch.topk(out_embs, 1)[1].item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
