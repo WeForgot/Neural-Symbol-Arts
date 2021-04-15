@@ -134,9 +134,9 @@ class AutoregressiveDecoder(nn.Module):
             attn_talking_heads = True
         )
 
-        self.to_classes = FeedForward(self.latent_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
-        self.to_colors = FeedForward(self.latent_dim, dim_out=4, glu=True, dropout=0.1)
-        self.to_positions = FeedForward(self.latent_dim, dim_out=8, glu=True, dropout=0.1)
+        self.to_classes = FeedForward(d_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
+        self.to_colors = FeedForward(d_dim, dim_out=4, glu=True, dropout=0.1)
+        self.to_positions = FeedForward(d_dim, dim_out=8, glu=True, dropout=0.1)
 
     
     def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.l1_loss):
