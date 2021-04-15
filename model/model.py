@@ -20,7 +20,6 @@ from vit_pytorch.mpp import MPP
 from x_transformers import Decoder
 from byol_pytorch import BYOL
 from routing_transformer import RoutingTransformer
-from sinkhorn_transformer import SinkhornTransformer, Autopadder
 
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
@@ -133,6 +132,8 @@ class AutoregressiveDecoder(nn.Module):
                 depth = d_depth,
                 max_seq_len = 256,
                 heads = d_heads,
+                ff_glu = True,
+                use_scale_norm = True,
             )
             self.routing = True
         else:
