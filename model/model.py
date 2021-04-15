@@ -141,8 +141,8 @@ class AutoregressiveDecoder(nn.Module):
             x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
-        pred_cols = self.to_colors(x)
-        pred_posi = self.to_positions(x)
+        pred_cols = self.to_colors(x).sigmoid()
+        pred_posi = self.to_positions(x).tanh()
 
         if self.routing:
             if return_predictions:
@@ -158,7 +158,7 @@ class AutoregressiveDecoder(nn.Module):
             return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
 
     @torch.no_grad()
-    def generate(self, context, vocab, max_len):
+    def generate(self, context, vocab, max_len, k=1):
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
@@ -167,17 +167,24 @@ class AutoregressiveDecoder(nn.Module):
         while len(out) <= max_len:
             x = torch.unsqueeze(torch.from_numpy(np.asarray(out, dtype=np.float32)), dim=0).to(device)
             out_mask = torch.unsqueeze(torch.from_numpy(np.asarray(mask, dtype=np.bool)), dim=0).to(device)
+            feature_emb, feature_met = torch.split(x, [1, x.shape[-1] - 1], dim=-1)
+            embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
+            embs = self.emb_dropout(embs)
+            y = torch.cat([embs, feature_met], dim=-1)
+            y = self.projection(y)
+            if self.routing:
+                x, _ = self.decoder(y, context=context, mask=out_mask)
+            else:
+                x = self.decoder(y, context=context, mask=out_mask)
 
-            out_embs, out_locs = torch.split(x, [1, x.shape[-1]-1], dim=-1)
-            out_embs = self.embedding_dim(out_embs.int()).squeeze(dim=2)
-
-            x = torch.cat([out_embs, out_locs], dim=-1)
-            x = self.projection(x)
-            x = self.decoder(x, context=context, mask=out_mask)[0] if self.routing else self.decoder(x, context=context, mask=out_mask)
-
-            out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
+            out_embs = self.to_classes(x)
+            out_colors = self.to_colors(x).sigmoid()
+            out_positions = self.to_positions(x).tanh()
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
-            emb_idx = torch.topk(out_embs, 1)[1].item()
+            if k == 1:
+                emb_idx = torch.topk(out_embs, 1)[1].item()
+            else:
+                emb_idx = random.choice(torch.topk(out_embs, 1)[1]).item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
             if emb_idx == eos_token:
