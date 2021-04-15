@@ -173,7 +173,6 @@ class AutoregressiveDecoder(nn.Module):
             out_embs = self.embedding_dim(out_embs.int()).squeeze(dim=2)
 
             x = torch.cat([out_embs, out_locs], dim=-1)
-            x += self.absolute_positional_embeddings[:x.shape[1],:]
             x = self.decoder(x, context=context, mask=out_mask)
             out_embs, out_colors, out_positions = self.to_classes(x), self.to_colors(x), self.to_positions(x)
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:].sigmoid(), out_positions[:,-1:,:].tanh()
