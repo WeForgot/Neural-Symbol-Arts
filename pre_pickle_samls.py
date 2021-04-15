@@ -72,6 +72,7 @@ def main():
     all_samls = glob.glob(os.path.join('data','BetterSymbolArts','processed','*.saml'))
     all_data = []
     for x in all_samls:
+        print('Working on {}'.format(x))
         img_path = x[:-5] + '.png'
         converted, mask = convert_saml(x, vocab)
         all_data.append({'feature': img_path, 'label': converted, 'mask': mask})
