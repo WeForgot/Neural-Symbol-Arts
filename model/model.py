@@ -18,6 +18,7 @@ from vit_pytorch import ViT
 from vit_pytorch.cvt import CvT
 from vit_pytorch.mpp import MPP
 from x_transformers import Decoder
+from x_transformers.x_transformers import FeedForward
 from byol_pytorch import BYOL
 from routing_transformer import RoutingTransformer
 
@@ -25,7 +26,7 @@ from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary
 
 load_dotenv()
-
+'''
 class GEGLU(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
@@ -54,7 +55,7 @@ class FeedForward(nn.Module):
     
     def forward(self, x):
         return self.net(x)
-
+'''
 class BasicEncoder(nn.Module):
     def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, mlp_dim = 128, encoder_type = 'vit'):
         super(BasicEncoder, self).__init__()
@@ -124,7 +125,7 @@ class AutoregressiveDecoder(nn.Module):
 
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
-        self.projection = nn.Linear(self.latent_dim, d_dim)
+        self.projection = FeedForward(self.latent_dim, dim_out=d_dim, glu=True)
 
         if decoder_type.lower() == 'routing':
             self.decoder = RoutingTransformer(
