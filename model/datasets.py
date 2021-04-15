@@ -118,7 +118,7 @@ class LayersDataset(Dataset):
 class SADataset(Dataset):
     def __init__(self, data):
         self.data = data
-        self.rand_max = len(data[0]['label'])
+        self.rand_max = 225
         self.cur_rand = random.randint(2, self.rand_max)
     
     def new_rand(self):
