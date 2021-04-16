@@ -29,7 +29,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     pad_line = [vocab['<PAD>']] + [0] * 12
     saml_lines = []
     saml_mask = []
-    saml_lines.append(sos_line)
+    saml_lines.append(eos_line)
     saml_mask.append(True)
     max_length += 2 # We are adding the SOS and EOS tokens
     for ldx, layer in enumerate(root):
@@ -50,7 +50,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-    saml_lines.append(eos_line)
+    saml_lines.append(sos_line)
     saml_mask.append(True)
     saml_lines.reverse()
     while len(saml_lines) < max_length:

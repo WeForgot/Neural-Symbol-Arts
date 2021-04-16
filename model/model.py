@@ -97,6 +97,7 @@ class AutoregressiveDecoder(nn.Module):
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = FeedForward(self.latent_dim, dim_out=d_dim, glu=True)
+        self.latent = FeedForward(d_dim, dim_out=d_dim, glu=True)
 
         if decoder_type.lower() == 'routing':
             self.decoder = RoutingTransformer(
@@ -139,6 +140,8 @@ class AutoregressiveDecoder(nn.Module):
             x, aux_loss = self.decoder(y, context=context, mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
+        
+        x = self.latent(x)
 
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
@@ -176,6 +179,8 @@ class AutoregressiveDecoder(nn.Module):
                 x, _ = self.decoder(y, context=context, mask=out_mask)
             else:
                 x = self.decoder(y, context=context, mask=out_mask)
+            
+            x = self.latent(x)
 
             out_embs = self.to_classes(x)
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
