@@ -124,7 +124,7 @@ class AutoregressiveDecoder(nn.Module):
         self.to_positions = FeedForward(d_dim, dim_out=8, glu=True, dropout=0.1)
 
     
-    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.l1_loss):
+    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.l1_loss, use_activations=False):
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
@@ -141,8 +141,8 @@ class AutoregressiveDecoder(nn.Module):
             x = self.decoder(y, context=context, mask=feature_mask)
 
         pred_embs = self.to_classes(x)
-        pred_cols = self.to_colors(x).sigmoid()
-        pred_posi = self.to_positions(x).tanh()
+        pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
+        pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
 
         if self.routing:
             if return_predictions:
@@ -158,7 +158,7 @@ class AutoregressiveDecoder(nn.Module):
             return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
 
     @torch.no_grad()
-    def generate(self, context, vocab, max_len, k=1):
+    def generate(self, context, vocab, max_len, k=1, use_activations=False):
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
@@ -178,13 +178,10 @@ class AutoregressiveDecoder(nn.Module):
                 x = self.decoder(y, context=context, mask=out_mask)
 
             out_embs = self.to_classes(x)
-            out_colors = self.to_colors(x).sigmoid()
-            out_positions = self.to_positions(x).tanh()
+            out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
+            out_positions = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
-            if k == 1:
-                emb_idx = torch.topk(out_embs, 1)[1].item()
-            else:
-                emb_idx = random.choice(torch.topk(out_embs, 1)[1]).item()
+            emb_idx = torch.topk(out_embs, 1)[1].item() if k == 1 else random.choice(torch.topk(out_embs, 1)[1]).item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
             if emb_idx == eos_token:

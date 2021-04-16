@@ -52,6 +52,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
     saml_lines.append(eos_line)
     saml_mask.append(True)
+    saml_lines.reverse()
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
         saml_mask.append(False)

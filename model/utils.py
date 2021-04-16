@@ -82,6 +82,15 @@ def convert_numpy_to_saml(source_path, vocab, dest_path=None):
     with open(dest_path, 'w') as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n')
         data = np.load(source_path)
+        saml_lines = []
+        for line in data:
+            if vocab[int(line[0])] == '<SOS>' or vocab[int(line[0])] == '<PAD>':
+                continue
+            elif vocab[int(line[0])] == '<EOS>':
+                break
+            else:
+                saml_lines.append(line)
+        saml_lines.reverse()
         xml_data = ET.Element('sa')
         #sa name="さっきゅん" visible="true" version="1" author="10716288" width="192" height="96" sound="3"
         xml_data.set('name', 'Test')
@@ -91,11 +100,7 @@ def convert_numpy_to_saml(source_path, vocab, dest_path=None):
         xml_data.set('width', '192')
         xml_data.set('height', '96')
         xml_data.set('sound', '1')
-        for ldx, line in enumerate(data):
-            if vocab[int(line[0])] == '<SOS>':
-                continue
-            if vocab[int(line[0])] == '<EOS>':
-                break
+        for ldx, line in enumerate(saml_lines):
             layer = ET.SubElement(xml_data, 'layer')
             layer.set('name', 'Symbol {}'.format(ldx))
             layer.set('visible', 'true')

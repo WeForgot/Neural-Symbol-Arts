@@ -10,6 +10,7 @@ from skimage import io
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
 from einops import rearrange, repeat
@@ -141,8 +142,8 @@ def main():
         encoder_opt = AdaBelief(encoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
         decoder_opt = AdaBelief(decoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
     else:
-        encoder_opt = optim.SGD(encoder.parameters(), lr=1e-3)
-        decoder_opt = optim.SGD(decoder.parameters(), lr=1e-3)
+        encoder_opt = optim.SGD(encoder.parameters(), lr=1e-2, momentum=0.1)
+        decoder_opt = optim.SGD(decoder.parameters(), lr=1e-2, momentum=0.1)
     
     
     target_length = int(os.getenv('TARGET_LENGTH', 225))
@@ -178,7 +179,7 @@ def main():
                 decoder_opt.zero_grad()
 
                 enc = encoder(feature)
-                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss)
+                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=True)
 
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
@@ -219,7 +220,7 @@ def main():
                 feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
                 enc = encoder(feature.unsqueeze(0))
-                generated = np.asarray(decoder.generate(enc, vocab, 225))
+                generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=True))
                 np.save('test.npy', generated)
                 convert_numpy_to_saml('test.npy', vocab)
                 encoder.train()
@@ -231,7 +232,7 @@ def main():
     feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
-    generated = np.asarray(decoder.generate(enc, vocab, 225))
+    generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=True))
     np.save('test.npy', generated)
     convert_numpy_to_saml('test.npy', vocab)
     print(generated, flush=True)
