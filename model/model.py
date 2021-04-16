@@ -18,7 +18,7 @@ from vit_pytorch import ViT
 from vit_pytorch.cvt import CvT
 from vit_pytorch.mpp import MPP
 from x_transformers import Decoder
-from x_transformers.x_transformers import FeedForward
+from x_transformers.x_transformers import FeedForward, ScaleNorm
 from byol_pytorch import BYOL
 from routing_transformer import RoutingTransformer
 
@@ -98,6 +98,7 @@ class AutoregressiveDecoder(nn.Module):
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = FeedForward(self.latent_dim, dim_out=d_dim, glu=True)
         self.latent = FeedForward(d_dim, dim_out=d_dim, glu=True)
+        self.norm = ScaleNorm(d_dim)
 
         if decoder_type.lower() == 'routing':
             self.decoder = RoutingTransformer(
@@ -142,6 +143,7 @@ class AutoregressiveDecoder(nn.Module):
             x = self.decoder(y, context=context, mask=feature_mask)
         
         x = self.latent(x)
+        x = self.norm(x)
 
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
@@ -181,6 +183,7 @@ class AutoregressiveDecoder(nn.Module):
                 x = self.decoder(y, context=context, mask=out_mask)
             
             x = self.latent(x)
+            x = self.norm(x)
 
             out_embs = self.to_classes(x)
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)

@@ -155,7 +155,7 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
-    use_scaled_loss = False
+    use_scaled_loss = True
     use_min_loss = False
     alpha = 0.99
     alpha_decay = 0.001
