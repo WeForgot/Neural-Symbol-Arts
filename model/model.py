@@ -23,38 +23,31 @@ from byol_pytorch import BYOL
 from routing_transformer import RoutingTransformer
 
 from model.datasets import SADataset
-from model.utils import get_parameter_count, Vocabulary
+from model.utils import get_parameter_count, Vocabulary, top_k_top_p_filtering
 
 load_dotenv()
 
-class BasicEncoder(nn.Module):
-    def __init__(self, patch_size = 32, dim = 16, e_depth = 6, e_heads = 8, mlp_dim = 128, encoder_type = 'vit'):
-        super(BasicEncoder, self).__init__()
-        if encoder_type == 'cvt':
-            print('Using CvT as encoder')
-            self.encoder = CvT(
-            num_classes = 1,
-            )
-            self.encoder.layers[-1] = nn.Identity()
-            self.encoder.layers[-2] = nn.Identity()
-        else:
-            print('Using ViT as encoder')
-            self.encoder = ViT(
-                image_size = 576,
-                patch_size = patch_size,
-                dim = dim,
-                depth = e_depth,
-                heads = e_heads,
-                mlp_dim = mlp_dim,
-                num_classes = 1
-            )
-            self.encoder.mlp_head = nn.Identity()
-        
-    def forward(self, x):
-        return self.encoder(x)
-    
+def top_p(logits, thres = 0.9):
+    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+    cum_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
-def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15, hidden_layer = -1):
+    sorted_indices_to_remove = cum_probs > (1 - thres)
+    sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+    sorted_indices_to_remove[:, 0] = 0
+
+    sorted_logits[sorted_indices_to_remove] = float('-inf')
+    return sorted_logits.scatter(1, sorted_indices, sorted_logits)
+
+# topk
+
+def top_k(logits, thres = 0.9):
+    k = int((1 - thres) * logits.shape[-1])
+    val, ind = torch.topk(logits, k)
+    probs = torch.full_like(logits, float('-inf'))
+    probs.scatter_(1, ind, val)
+    return probs
+
+def pretrain_encoder(model, dataloader, device, epochs = 1000000, max_patience = 50, hidden_layer = -1):
     learner = BYOL(net = model, image_size = 576, hidden_layer=hidden_layer, use_momentum = False).to(device)
     opt = torch.optim.Adam(learner.parameters(), lr=3e-4)
     print('Beginning pretraining of encoder')
@@ -77,6 +70,9 @@ def pretrain_encoder(model, dataloader, device, epochs = 100, max_patience = 15,
             patience = 0
         if patience > max_patience:
             print('Out of patience. Breaking')
+            break
+        if running_loss == np.nan:
+            print('Loss is NaN. Breaking')
             break
         patience += 1
     model.load_state_dict(best_encoder)
@@ -163,7 +159,7 @@ class AutoregressiveDecoder(nn.Module):
             return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)) + loss_func(pred_cols, label_cols) + loss_func(pred_posi, label_posi)
 
     @torch.no_grad()
-    def generate(self, context, vocab, max_len, k=1, use_activations=False):
+    def generate(self, context, vocab, max_len, filter_logits_fn = top_k, p = 0.9, temperature = 1.0, use_activations=False):
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
@@ -189,7 +185,12 @@ class AutoregressiveDecoder(nn.Module):
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
             out_positions = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
-            emb_idx = torch.topk(out_embs, 1)[1].item() if k == 1 else random.choice(torch.topk(out_embs, 1)[1]).item()
+            out_embs = out_embs.squeeze(0)
+            filtered_logits = filter_logits_fn(out_embs, thres = p)
+            probs = F.softmax(filtered_logits / temperature, dim = -1)
+            sample = torch.multinomial(probs, 1)
+            emb_idx = sample.item()
+            #emb_idx = torch.topk(out_embs, 1)[1].item() if k == 1 else random.choice(torch.topk(out_embs, 1)[1]).item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
             if emb_idx == eos_token:

@@ -121,8 +121,8 @@ class SADataset(Dataset):
         self.rand_max = 225
         self.cur_rand = random.randint(2, self.rand_max)
     
-    def new_rand(self):
-        self.cur_rand = random.randint(2, self.rand_max-1)
+    def new_rand(self, ceiling=-1):
+        self.cur_rand = random.randint(2, self.rand_max-1) if ceiling < 0 or ceiling > self.rand_max - 1 else random.randint(2, ceiling)
     
     def __len__(self):
         return len(self.data)

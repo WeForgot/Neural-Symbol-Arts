@@ -1,4 +1,5 @@
 import json
+from math import isnan
 from statistics import mean
 import os
 import pickle
@@ -13,12 +14,14 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
-from x_transformers import Decoder
+from vit_pytorch.vit import ViT
+from vit_pytorch.efficient import ViT as EfficientViT
+from vit_pytorch.t2t import T2TViT
+from vit_pytorch.levit import LeViT
+from vit_pytorch.cvt import CvT
 from nystrom_attention import Nystromformer
 
-from model.model import BasicEncoder, AutoregressiveDecoder, pretrain_encoder
+from model.model import AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml
 
@@ -28,19 +31,10 @@ def freeze_model(model, freeze=True):
    for param in model.parameters():
       param.requires_grad = not freeze
 
-def make_encoder(force_new = False, encoder_type = 'vit'):
-    if os.path.exists('encoder_meta.json') and os.path.exists('encoder.pt') and not force_new:
+def make_encoder(force_new = False):
+    if os.path.exists('encoder_meta.json') and not force_new:
         with open('encoder_meta.json', 'r') as f:
             metadata = json.load(f)
-        encoder = BasicEncoder(
-            dim = metadata['dim'],
-            patch_size = metadata['patch_size'],
-            e_depth = metadata['e_depth'],
-            e_heads = metadata['e_heads'],
-            mlp_dim = metadata['mlp_dim'],
-            encoder_type = metadata['encoder_type']
-        )
-        encoder.load_state_dict(torch.load('encoder.pt'))
     else:
         with open('encoder_meta.json', 'w') as f:
             metadata = {
@@ -52,15 +46,58 @@ def make_encoder(force_new = False, encoder_type = 'vit'):
                 'mlp_dim': int(os.getenv('MLP_DIM', 128))
             }
             json.dump(metadata, f)
-
-        encoder = BasicEncoder(
-            dim = metadata['dim'],
+    encoder_type = metadata['encoder_type']
+    if encoder_type == 'vit':
+        encoder = ViT(
+            image_size = 576,
             patch_size = metadata['patch_size'],
-            e_depth = metadata['e_depth'],
-            e_heads = metadata['e_heads'],
-            mlp_dim = metadata['mlp_dim'],
-            encoder_type = metadata['encoder_type']
+            num_classes = 1,
+            dim = metadata['dim'],
+            depth = metadata['e_depth'],
+            heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim']
         )
+        encoder.mlp_head = nn.Identity()
+    elif encoder_type == 't2t':
+        encoder = T2TViT(
+            image_size = 576,
+            num_classes = 1,
+            dim = metadata['dim'],
+            depth = metadata['e_depth'],
+            heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim']
+        )
+        encoder.mlp_head = nn.Identity()
+    elif encoder_type == 'levit':
+        encoder = LeViT(
+            image_size = 576,
+            num_classes = 1,
+            dim = metadata['dim'],
+            depth = metadata['e_depth'],
+            heads = metadata['e_heads'],
+            mlp_mult = 2 # It is used as a default in the transformer but is a required arg in LeViT I guess?
+        )
+        encoder.mlp_head = nn.Identity()
+    elif encoder_type == 'cvt':
+        encoder = CvT(
+            num_classes = 1
+        )
+        encoder.layers[-1] = nn.Identity()
+    elif encoder_type == 'nystrom':
+        encoder = EfficientViT(
+            image_size = 576,
+            patch_size = metadata['patch_size'],
+            num_classes = 1,
+            dim = metadata['dim'],
+            transformer = Nystromformer(
+                dim = metadata['dim'],
+                depth = metadata['e_depth'],
+                heads = metadata['e_heads']
+            )
+        )
+        encoder.mlp_head = nn.Identity()
+    else:
+        raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
     return encoder
 
 def make_decoder(vocab, force_new = False):
@@ -95,6 +132,7 @@ def make_decoder(vocab, force_new = False):
             emb_dim = metadata['emb_dim'],
             d_depth = metadata['d_depth'],
             d_heads = metadata['d_heads'],
+            d_dim = metadata['dim'],
             emb_drop = metadata['emb_drop'],
             decoder_type = metadata['decoder_type']
         )
@@ -111,7 +149,7 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    encoder = make_encoder(force_new=True, encoder_type = 'cvt').to(device)
+    encoder = make_encoder(force_new=True).to(device)
     decoder = make_decoder(vocab, force_new=True).to(device)
     print(encoder, flush=True)
     trainable, untrainable = get_parameter_count(encoder)
@@ -123,7 +161,7 @@ def main():
     dataset = SADataset(data)
     batch_size = int(os.getenv('BATCH_SIZE', 2))
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
+    
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
         encoder_opt = optim.Adam(encoder.parameters(), lr=1e-3)
@@ -157,6 +195,8 @@ def main():
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
     use_scaled_loss = True
     use_min_loss = False
+    use_activations = True
+    enable_pretraining = False
     alpha = 0.99
     alpha_decay = 0.001
     encoder_warmup = 20
@@ -169,6 +209,7 @@ def main():
         loss_func = lambda x: sum(x) / len(x)
     else:
         loss_func = lambda x: max(x)
+
     with open('train_metrics.csv', 'w') as f:
         for edx in range(max_epochs):
             losses = []
@@ -179,7 +220,7 @@ def main():
                 decoder_opt.zero_grad()
 
                 enc = encoder(feature)
-                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=True)
+                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=use_activations)
 
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
@@ -191,6 +232,9 @@ def main():
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
                 total_loss = emb_loss + color_loss + pos_loss + (aux_loss if aux_loss is not None else 0)
+                losses.append(total_loss.item())
+                if torch.isnan(total_loss):
+                    print('Batch loss is NaN. Breaking')
                 total_loss.backward()
 
                 encoder_opt.step()
@@ -198,9 +242,13 @@ def main():
 
                 if batch_metrics:
                     print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
-                losses.append(total_loss.item())
+                
                 dataloader.dataset.new_rand()
+
             loss_val = loss_func(losses)
+            if isnan(loss_val):
+                print('Loss is NaN. Breaking', flush = True)
+                break
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()
             print('Epoch #{}, Loss: {}'.format(edx, loss_val), flush=True)
@@ -218,9 +266,10 @@ def main():
                 encoder.eval()
                 decoder.eval()
                 feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
+                #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
                 enc = encoder(feature.unsqueeze(0))
-                generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=True))
+                generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
                 np.save('test.npy', generated)
                 convert_numpy_to_saml('test.npy', vocab)
                 encoder.train()
@@ -229,10 +278,14 @@ def main():
             if cur_patience > max_patience:
                 print('Out of patience. Breaking', flush=True)
                 break
+            
+    encoder.load_state_dict(best_encoder)
+    decoder.load_state_dict(best_decoder)
     feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
+    #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
-    generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=True))
+    generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)
     convert_numpy_to_saml('test.npy', vocab)
     print(generated, flush=True)
