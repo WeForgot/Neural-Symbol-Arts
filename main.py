@@ -235,6 +235,7 @@ def main():
                 losses.append(total_loss.item())
                 if torch.isnan(total_loss):
                     print('Batch loss is NaN. Breaking')
+                    break
                 total_loss.backward()
 
                 encoder_opt.step()
@@ -247,8 +248,8 @@ def main():
 
             loss_val = loss_func(losses)
             if isnan(loss_val):
-                print('Loss is NaN. Breaking', flush = True)
-                break
+                print('Loss is NaN. Returning', flush = True)
+                return
             f.write('{},{}\n'.format(edx, loss_val))
             f.flush()
             print('Epoch #{}, Loss: {}'.format(edx, loss_val), flush=True)
