@@ -3,10 +3,13 @@ import os
 import pickle
 import xml.etree.ElementTree as ET
 
+from dotenv import load_dotenv
 import numpy as np
 from webcolors import hex_to_rgb
 
 from model.utils import load_weights, load_saml, Vocabulary
+
+load_dotenv()
 
 def clamp_array(arr):
     # Pos bound = +/-127
@@ -19,7 +22,7 @@ def clamp_array(arr):
     return arr
 
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False) -> np.ndarray:
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False, reverse = False) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
@@ -29,7 +32,10 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     pad_line = [vocab['<PAD>']] + [0] * 12
     saml_lines = []
     saml_mask = []
-    saml_lines.append(eos_line)
+    if reverse:
+        saml_lines.append(eos_line)
+    else:
+        saml_lines.append(sos_line)
     saml_mask.append(True)
     max_length += 2 # We are adding the SOS and EOS tokens
     for ldx, layer in enumerate(root):
@@ -50,9 +56,12 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-    saml_lines.append(sos_line)
+    if reverse:
+        saml_lines.append(sos_line)
+        saml_lines.reverse()
+    else:
+        saml_lines.append(eos_line)
     saml_mask.append(True)
-    saml_lines.reverse()
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
         saml_mask.append(False)
@@ -60,6 +69,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
 
 # 386 layers + start token + pad token = 388 vocab size
 def main():
+    should_reverse = True if os.getenv('REVERSE_DATA', 'false').lower() == 'true' else False
     if not os.path.exists('vocab.pkl'):
         print('Creating new vocab')
         vocab = Vocabulary()
@@ -75,7 +85,7 @@ def main():
     for x in all_samls:
         print('Working on {}'.format(x))
         img_path = x[:-5] + '.png'
-        converted, mask = convert_saml(x, vocab)
+        converted, mask = convert_saml(x, vocab, reverse = should_reverse)
         all_data.append({'feature': img_path, 'label': converted, 'mask': mask})
     with open('data.pkl', 'wb') as f:
         pickle.dump(all_data, f)
