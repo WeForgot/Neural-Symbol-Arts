@@ -118,8 +118,8 @@ class LayersDataset(Dataset):
 class SADataset(Dataset):
     def __init__(self, data):
         self.data = data
-        self.rand_max = 225
-        self.cur_rand = random.randint(2, self.rand_max)
+        self.rand_max = 227
+        self.cur_rand = random.randint(2, self.rand_max-1)
     
     def new_rand(self, ceiling=-1):
         self.cur_rand = random.randint(2, self.rand_max-1) if ceiling < 0 or ceiling > self.rand_max - 1 else random.randint(2, ceiling)
