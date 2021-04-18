@@ -212,7 +212,10 @@ def main():
 
     with open('train_metrics.csv', 'w') as f:
         for edx in range(max_epochs):
-            losses = []
+            total_losses = []
+            emb_losses = []
+            color_losses = []
+            position_losses = []
             for bdx, i_batch in enumerate(dataloader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
@@ -232,8 +235,11 @@ def main():
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
                 total_loss = emb_loss + color_loss + pos_loss + (aux_loss if aux_loss is not None else 0)
-                losses.append(total_loss.item())
-                if torch.isnan(total_loss):
+                total_losses.append(total_loss.item())
+                emb_losses.append(emb_loss.item())
+                color_losses.append(color_loss.item())
+                position_losses.append(pos_loss.item())
+                if isnan(total_losses[-1]):
                     print('Batch loss is NaN. Breaking')
                     break
                 total_loss.backward()
@@ -246,15 +252,18 @@ def main():
                 
                 dataloader.dataset.new_rand()
 
-            loss_val = loss_func(losses)
-            if isnan(loss_val):
+            total_val = loss_func(total_losses)
+            emb_val = loss_func(emb_losses)
+            color_val = loss_func(color_losses)
+            position_val = loss_func(position_losses)
+            if isnan(total_val):
                 print('Loss is NaN. Returning', flush = True)
                 return
-            f.write('{},{}\n'.format(edx, loss_val))
+            f.write('{},{},{},{},{}\n'.format(edx, total_val, emb_val, color_val, position_val))
             f.flush()
-            print('Epoch #{}, Loss: {}'.format(edx, loss_val), flush=True)
-            if best_loss is None or loss_val < best_loss:
-                best_loss = loss_val
+            print('Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_val, emb_val, color_val, position_val), flush=True)
+            if best_loss is None or total_val < best_loss:
+                best_loss = total_val
                 best_encoder = encoder.state_dict()
                 best_decoder = decoder.state_dict()
                 cur_patience = 0

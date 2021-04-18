@@ -107,14 +107,18 @@ class AutoregressiveDecoder(nn.Module):
             )
             self.routing = True
         else:
-            self.decoder = Decoder(
-                dim = d_dim,
-                depth = d_depth,
-                heads = d_heads,
-                ff_glu = True,
-                rel_pos_bias=True,
-                position_infused_attn=True,
-                attn_talking_heads = True
+            self.decoder = ContinuousTransformerWrapper(
+                max_seq_len = 256,
+                attn_layers = Decoder(
+                    dim = d_dim,
+                    depth = d_depth,
+                    heads = d_heads,
+                    use_scalenorm = True,
+                    rel_pos_bias = True
+                ),
+                dim_in = d_dim,
+                dim_out = d_dim,
+                use_pos_emb = True
             )
 
         self.to_classes = FeedForward(d_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
