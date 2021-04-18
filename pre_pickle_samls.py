@@ -47,7 +47,10 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         rtx, rty, rbx, rby = attribs['rtx'], attribs['rty'], attribs['rbx'], attribs['rby']
         if attribs['visible'] == 'true':
             cur_line = list(map(float, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby]))
-            saml_lines.append(np.asarray(clamp_array(cur_line), dtype=np.float32))
+            if clamp_values:
+                saml_lines.append(np.asarray(clamp_array(cur_line), dtype=np.float32))
+            else:
+                saml_lines.append(np.asarray(cur_line, dtype=np.float32))
             saml_mask.append(True)
         if verbose:
             print('Layer #{}'.format(ldx+1))
