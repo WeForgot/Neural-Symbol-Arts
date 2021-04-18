@@ -193,7 +193,7 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
-    use_scaled_loss = True
+    use_scaled_loss = False
     use_min_loss = False
     use_activations = True
     enable_pretraining = False

@@ -17,7 +17,7 @@ from einops.layers.torch import Rearrange
 from vit_pytorch import ViT
 from vit_pytorch.cvt import CvT
 from vit_pytorch.mpp import MPP
-from x_transformers import Decoder
+from x_transformers import Decoder, ContinuousTransformerWrapper
 from x_transformers.x_transformers import FeedForward, ScaleNorm
 from byol_pytorch import BYOL
 from routing_transformer import RoutingTransformer
@@ -93,8 +93,8 @@ class AutoregressiveDecoder(nn.Module):
         self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = FeedForward(self.latent_dim, dim_out=d_dim, glu=True)
-        self.latent = FeedForward(d_dim, dim_out=d_dim, glu=True)
-        self.norm = ScaleNorm(d_dim)
+        #self.latent = FeedForward(d_dim, dim_out=d_dim, glu=True)
+        #self.norm = ScaleNorm(d_dim)
 
         if decoder_type.lower() == 'routing':
             self.decoder = RoutingTransformer(
@@ -122,7 +122,7 @@ class AutoregressiveDecoder(nn.Module):
         self.to_positions = FeedForward(d_dim, dim_out=8, glu=True, dropout=0.1)
 
     
-    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.l1_loss, use_activations=False):
+    def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.mse_loss, use_activations=False):
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
@@ -138,8 +138,8 @@ class AutoregressiveDecoder(nn.Module):
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
         
-        x = self.latent(x)
-        x = self.norm(x)
+        #x = self.latent(x)
+        #x = self.norm(x)
 
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
@@ -178,8 +178,8 @@ class AutoregressiveDecoder(nn.Module):
             else:
                 x = self.decoder(y, context=context, mask=out_mask)
             
-            x = self.latent(x)
-            x = self.norm(x)
+            #x = self.latent(x)
+            #x = self.norm(x)
 
             out_embs = self.to_classes(x)
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
@@ -190,7 +190,6 @@ class AutoregressiveDecoder(nn.Module):
             probs = F.softmax(filtered_logits / temperature, dim = -1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
-            #emb_idx = torch.topk(out_embs, 1)[1].item() if k == 1 else random.choice(torch.topk(out_embs, 1)[1]).item()
             out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
             mask.append(True)
             if emb_idx == eos_token:
