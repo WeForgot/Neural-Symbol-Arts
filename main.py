@@ -195,7 +195,7 @@ def main():
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
     use_scaled_loss = False
     use_min_loss = False
-    use_activations = True
+    use_activations = False
     enable_pretraining = False
     alpha = 0.99
     alpha_decay = 0.001
