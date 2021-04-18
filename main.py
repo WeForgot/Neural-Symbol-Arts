@@ -177,8 +177,8 @@ def main():
         decoder_opt = optim.RMSprop(decoder.parameters(), lr=1e-3)
     elif optimizer.lower() == 'adabelief':
         from adabelief_pytorch.AdaBelief import AdaBelief
-        encoder_opt = AdaBelief(encoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
-        decoder_opt = AdaBelief(decoder.parameters(), lr=5e-4, weight_decay=1e-4, print_change_log=False)
+        encoder_opt = AdaBelief(encoder.parameters(), lr=1e-3, weight_decay=1e-4, print_change_log=False)
+        decoder_opt = AdaBelief(decoder.parameters(), lr=1e-3, weight_decay=1e-4, print_change_log=False)
     else:
         encoder_opt = optim.SGD(encoder.parameters(), lr=1e-2, momentum=0.1)
         decoder_opt = optim.SGD(decoder.parameters(), lr=1e-2, momentum=0.1)

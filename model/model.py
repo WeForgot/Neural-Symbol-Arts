@@ -121,13 +121,23 @@ class AutoregressiveDecoder(nn.Module):
                 use_pos_emb = True
             )
 
-        #self.to_classes = FeedForward(d_dim, dim_out=self.layer_count, glu=True, dropout=0.1)
-        #self.to_colors = FeedForward(d_dim, dim_out=4, glu=True, dropout=0.1)
-        #self.to_positions = FeedForward(d_dim, dim_out=8, glu=True, dropout=0.1)
-        self.norm = nn.LayerNorm(d_dim)
-        self.to_classes = nn.Linear(d_dim, self.layer_count)
-        self.to_colors = nn.Linear(d_dim, 4)
-        self.to_positions = nn.Linear(d_dim, 8)
+        self.to_classes = nn.Sequential(
+              nn.LayerNorm(d_dim),
+              FeedForward(d_dim, d_dim, glu=True),
+              nn.Dropout(p=0.1),
+              nn.Linear(d_dim, self.layer_count)
+        )
+        self.to_colors = nn.Sequential(
+              FeedForward(d_dim, d_dim, glu=True),
+              nn.Dropout(p=0.1),
+              nn.Linear(d_dim, 4)
+        )
+        self.to_positions = nn.Sequential(
+              FeedForward(d_dim, d_dim, glu=True),
+              nn.Dropout(p=0.1),
+              nn.Linear(d_dim, 8)
+        )
+
 
     
     def forward(self, src, mask=None, context=None, return_both_loss=False, return_predictions=False, loss_func=F.mse_loss, use_activations=False):
@@ -153,7 +163,6 @@ class AutoregressiveDecoder(nn.Module):
         #pred_embs = self.to_classes(x)
         #pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
         #pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
-        x = self.norm(x)
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
         pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
@@ -193,7 +202,6 @@ class AutoregressiveDecoder(nn.Module):
             
             #x = self.latent(x)
             #x = self.norm(x)
-            x = self.norm(x)
 
             out_embs = self.to_classes(x)
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
