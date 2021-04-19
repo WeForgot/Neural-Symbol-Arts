@@ -155,14 +155,6 @@ class AutoregressiveDecoder(nn.Module):
             x, aux_loss = self.decoder(y, context=context, mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
-        
-        #x = self.latent(x)
-        #x = self.norm(x)
-
-
-        #pred_embs = self.to_classes(x)
-        #pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
-        #pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
         pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
@@ -199,9 +191,6 @@ class AutoregressiveDecoder(nn.Module):
                 x, _ = self.decoder(y, context=context, mask=out_mask)
             else:
                 x = self.decoder(y, context=context, mask=out_mask)
-            
-            #x = self.latent(x)
-            #x = self.norm(x)
 
             out_embs = self.to_classes(x)
             out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)

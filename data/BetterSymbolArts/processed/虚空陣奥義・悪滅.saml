@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<overlay-img src="https://malulleybovo.github.io/SymbolArtEditorOnline/images/tile.png" pos-x="960" pos-y="480" scale="1" rot="0" alpha="0.5" green-screen="false"/>
+<sa name="虚空陣奥義・悪滅" visible="true" version="1" author="10340536" width="192" height="96" sound="12">
+	<layer name="Symbol 0" visible="true" type="430" color="#020202" alpha="1" ltx="5" lty="12" lbx="29" lby="-20" rtx="-21" rty="-8" rbx="3" rby="-40"/>
+	<layer name="Symbol 1" visible="true" type="242" color="#020202" alpha="1" ltx="26" lty="33" lbx="26" lby="50" rtx="33" rty="33" rbx="33" rby="50"/>
+	<layer name="Symbol 2" visible="true" type="242" color="#020202" alpha="1" ltx="16" lty="34" lbx="16" lby="42" rtx="32" rty="34" rbx="32" rby="42"/>
+	<layer name="Symbol 3" visible="true" type="240" color="#020202" alpha="1" ltx="-4" lty="18" lbx="-6" lby="33" rtx="24" rty="31" rbx="22" rby="46"/>
+	<layer name="Symbol 4" visible="true" type="260" color="#020202" alpha="1" ltx="-1" lty="6" lbx="-17" lby="26" rtx="14" rty="22" rbx="-2" rby="42"/>
+	<layer name="Symbol 5" visible="true" type="242" color="#020202" alpha="1" ltx="-40" lty="41" lbx="-40" lby="48" rtx="-21" rty="41" rbx="-21" rby="48"/>
+	<layer name="Symbol 6" visible="true" type="242" color="#020202" alpha="1" ltx="-21" lty="23" lbx="-21" lby="48" rtx="-29" rty="23" rbx="-29" rby="48"/>
+	<layer name="Symbol 7" visible="true" type="240" color="#020202" alpha="1" ltx="-13" lty="5" lbx="-39" lby="29" rtx="-2" rty="17" rbx="-28" rby="41"/>
+	<layer name="Symbol 8" visible="true" type="423" color="#020202" alpha="1" ltx="-98" lty="-51" lbx="-98" lby="-10" rtx="-50" rty="-51" rbx="-50" rby="-10"/>
+	<layer name="Symbol 9" visible="true" type="422" color="#020202" alpha="1" ltx="-22" lty="-28" lbx="4" lby="-21" rtx="-13" rty="-58" rbx="13" rby="-51"/>
+	<layer name="Symbol 10" visible="true" type="482" color="#020202" alpha="1" ltx="-16" lty="-12" lbx="-16" lby="24" rtx="127" rty="-12" rbx="127" rby="24"/>
+	<layer name="Symbol 11" visible="true" type="426" color="#020202" alpha="1" ltx="-107" lty="103" lbx="-122" lby="-82" rtx="76" rty="86" rbx="61" rby="-99"/>
+	<layer name="Symbol 12" visible="true" type="482" color="#cc0000" alpha="1" ltx="-64" lty="-37" lbx="-63" lby="47" rtx="124" rty="-38" rbx="125" rby="46"/>
+	<layer name="Symbol 13" visible="true" type="482" color="#cc0000" alpha="1" ltx="-126" lty="-39" lbx="-126" lby="47" rtx="65" rty="-39" rbx="65" rby="47"/>
+	<layer name="Symbol 14" visible="true" type="425" color="#020202" alpha="1" ltx="-21" lty="-33" lbx="26" lby="28" rtx="70" rty="-102" rbx="117" rby="-41"/>
+	<layer name="Symbol 15" visible="true" type="424" color="#020202" alpha="1" ltx="-88" lty="16" lbx="-88" lby="60" rtx="-40" rty="16" rbx="-40" rby="60"/>
+	<layer name="Symbol 16" visible="true" type="242" color="#e8f0f4" alpha="1" ltx="-116" lty="-79" lbx="-116" lby="68" rtx="74" rty="-79" rbx="74" rby="68"/>
+	<layer name="Symbol 17" visible="true" type="242" color="#f0f4e4" alpha="1" ltx="-28" lty="-64" lbx="-28" lby="68" rtx="118" rty="-64" rbx="118" rby="68"/>
+</sa>

@@ -105,7 +105,7 @@ def load_saml(filepath, weights):
         mask[ldx] = 1
     return saml, mask
 
-def convert_numpy_to_saml(source_path, vocab, dest_path=None):
+def convert_numpy_to_saml(source_path, vocab, dest_path=None, values_clamped=False):
     if dest_path is None:
         dest_path = source_path[:-3] + 'saml'
     
@@ -135,14 +135,12 @@ def convert_numpy_to_saml(source_path, vocab, dest_path=None):
             layer.set('name', 'Symbol {}'.format(ldx))
             layer.set('visible', 'true')
             layer.set('type', '{}'.format(vocab[int(line[0])]))
-            color_tup = [int(x) for x in line[1:4]]
-            #color_tup = [int(x * 255) for x in color_tup]
+            color_tup = [int(x * 255) for x in line[1:4]] if values_clamped else [int(x) for x in line[1:4]]
             color_tup = rgb_to_hex(color_tup)
             layer.set('color', str(color_tup))
-            layer.set('alpha', str(line[4]))
-            #layer.set('alpha', str(max(1, int(line[4]*255))))
-            #positions = list(map(lambda x: str(int((x * 127))), line[5:]))
-            positions = list(map(lambda x: str(int(x)), line[5:]))
+            alpha_val = str(max(1, int(line[4]*255))) if values_clamped else str(line[4])
+            layer.set('alpha', alpha_val)
+            positions = list(map(lambda x: str(int(x * 127)), line[5:])) if values_clamped else list(map(lambda x: str(int(x)), line[5:]))
             layer.set('ltx', positions[0])
             layer.set('lty', positions[1])
             layer.set('lbx', positions[2])

@@ -73,6 +73,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
 # 386 layers + start token + pad token = 388 vocab size
 def main():
     should_reverse = True if os.getenv('REVERSE_DATA', 'false').lower() == 'true' else False
+    clamp_values = True if os.getenv('CLAMP_DATA', 'false').lower() == 'true' else False
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
     if not os.path.exists('vocab.pkl'):
         print('Creating new vocab')
@@ -89,7 +90,7 @@ def main():
     for x in all_samls:
         print('Working on {}'.format(x))
         img_path = x[:-5] + '.png'
-        converted, mask = convert_saml(x, vocab, reverse = should_reverse)
+        converted, mask = convert_saml(x, vocab, reverse = should_reverse, clamp_values=clamp_values)
         all_data.append({'feature': img_path, 'label': converted, 'mask': mask})
     with open('data.pkl', 'wb') as f:
         pickle.dump(all_data, f)

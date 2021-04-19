@@ -19,13 +19,18 @@ from vit_pytorch.efficient import ViT as EfficientViT
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
 from vit_pytorch.cvt import CvT
+from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
+from routing_transformer import RoutingTransformer
 
 from model.model import AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml
 
 load_dotenv()
+
+def env_bool(variable):
+    return True if os.getenv(variable, 'true').lower() == 'true' else False
 
 def freeze_model(model, freeze=True):
    for param in model.parameters():
@@ -96,6 +101,30 @@ def make_encoder(force_new = False):
             )
         )
         encoder.mlp_head = nn.Identity()
+    elif encoder_type == 'rotary':
+        encoder = RvT(
+            image_size = 576,
+            patch_size = metadata['patch_size'],
+            num_classes = 1,
+            dim = metadata['dim'],
+            depth = metadata['e_depth'],
+            heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim']
+        )
+        encoder.mlp_head = nn.Identity()
+    elif encoder_type == 'routing':
+        encoder = EfficientViT(
+            image_size = 576,
+            patch_size = metadata['patch_size'],
+            num_classes = 1,
+            dim = metadata['dim'],
+            transformer = RoutingTransformer(
+                dim = metadata['dim'],
+                depth = metadata['e_depth'],
+                max_seq_len = 256,
+                heads = metadata['e_heads']
+            )
+        )
     else:
         raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
     return encoder
@@ -195,8 +224,9 @@ def main():
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
     use_scaled_loss = False
     use_min_loss = False
-    use_activations = False
-    enable_pretraining = False
+    use_activations = env_bool('USE_ACTIVATIONS')
+    enable_pretraining = True
+    data_clamped = env_bool('CLAMP_DATA')
     alpha = 0.99
     alpha_decay = 0.001
     encoder_warmup = 20
@@ -209,7 +239,8 @@ def main():
         loss_func = lambda x: sum(x) / len(x)
     else:
         loss_func = lambda x: max(x)
-
+    if enable_pretraining:
+        encoder = pretrain_encoder(encoder, dataloader, device, max_patience=10)
     with open('train_metrics.csv', 'w') as f:
         for edx in range(max_epochs):
             total_losses = []
@@ -249,7 +280,6 @@ def main():
 
                 if batch_metrics:
                     print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
-                
                 dataloader.dataset.new_rand()
 
             total_val = loss_func(total_losses)
@@ -276,12 +306,12 @@ def main():
                 encoder.eval()
                 decoder.eval()
                 feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
-                #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+                #feature = io.imread('EasyTest.png')[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
                 enc = encoder(feature.unsqueeze(0))
                 generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
                 np.save('test.npy', generated)
-                convert_numpy_to_saml('test.npy', vocab)
+                convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
                 encoder.train()
                 decoder.train()
             
@@ -292,12 +322,12 @@ def main():
     encoder.load_state_dict(best_encoder)
     decoder.load_state_dict(best_decoder)
     feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
-    #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+    #feature = io.imread('EasyTest.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)
-    convert_numpy_to_saml('test.npy', vocab)
+    convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
     print(generated, flush=True)
     print(generated.shape, flush=True)
 
