@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<overlay-img src="https://malulleybovo.github.io/SymbolArtEditorOnline/images/tile.png" pos-x="960" pos-y="480" scale="1" rot="0" alpha="0.5" green-screen="false"/>
+<sa name="アッフン" visible="true" version="1" author="10075893" width="192" height="96" sound="9">
+	<layer name="Symbol 0" visible="true" type="75" color="#020202" alpha="1" ltx="-13" lty="-7" lbx="31" lby="9" rtx="-29" rty="36" rbx="15" rby="52"/>
+	<layer name="Symbol 1" visible="true" type="345" color="#020202" alpha="1" ltx="-40" lty="45" lbx="-24" lby="4" rtx="-1" rty="42" rbx="15" rby="1"/>
+	<layer name="Symbol 2" visible="true" type="345" color="#020202" alpha="1" ltx="41" lty="45" lbx="25" lby="4" rtx="2" rty="42" rbx="-14" rby="1"/>
+	<layer name="Symbol 3" visible="true" type="259" color="#cc0000" alpha="1" ltx="-19" lty="13" lbx="-19" lby="33" rtx="21" rty="13" rbx="21" rby="33"/>
+	<layer name="Symbol 4" visible="true" type="353" color="#020202" alpha="1" ltx="12" lty="-6" lbx="-10" lby="-6" rtx="12" rty="16" rbx="-10" rby="16"/>
+	<layer name="Symbol 5" visible="true" type="267" color="#181818" alpha="1" ltx="15" lty="-20" lbx="15" lby="-8" rtx="27" rty="-20" rbx="27" rby="-8"/>
+	<layer name="Symbol 6" visible="true" type="267" color="#181818" alpha="1" ltx="-25" lty="-20" lbx="-25" lby="-8" rtx="-13" rty="-20" rbx="-13" rby="-8"/>
+	<layer name="Symbol 7" visible="true" type="267" color="#e8f0f4" alpha="1" ltx="11" lty="-4" lbx="31" lby="-4" rtx="11" rty="-24" rbx="31" rby="-24"/>
+	<layer name="Symbol 8" visible="true" type="267" color="#e8f0f4" alpha="1" ltx="-29" lty="-4" lbx="-9" lby="-4" rtx="-29" rty="-24" rbx="-9" rby="-24"/>
+	<layer name="Symbol 9" visible="true" type="267" color="#020202" alpha="1" ltx="7" lty="0" lbx="35" lby="0" rtx="7" rty="-28" rbx="35" rby="-28"/>
+	<layer name="Symbol 10" visible="true" type="267" color="#020202" alpha="1" ltx="-33" lty="0" lbx="-5" lby="0" rtx="-33" rty="-28" rbx="-5" rby="-28"/>
+	<layer name="Symbol 11" visible="true" type="240" color="#f8e0cc" alpha="1" ltx="-44" lty="-44" lbx="-44" lby="46" rtx="46" rty="-44" rbx="46" rby="46"/>
+	<layer name="Symbol 12" visible="true" type="240" color="#020202" alpha="1" ltx="-49" lty="-49" lbx="-49" lby="51" rtx="51" rty="-49" rbx="51" rby="51"/>
+</sa>
