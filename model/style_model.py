@@ -4,6 +4,16 @@ import torch
 import torch.nn as nn
 from vit_pytorch.vit import PreNorm, FeedForward, Attention
 
+class DepthWiseConv2d(nn.Module):
+    def __init__(self, dim_in, dim_out, kernel_size, padding = 0, stride = 1, bias = True):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(dim_in, dim_in, kernel_size = kernel_size, padding = padding, groups = dim_in, stride = stride, bias = bias),
+            nn.Conv2d(dim_in, dim_out, kernel_size = 1, bias = bias)
+        )
+    def forward(self, x):
+        return self.net(x)
+
 
 class Conv2DMod(nn.Module):
     def __init__(self, in_chan, out_chan, kernel, demod=True, stride=1, dilation=1, eps = 1e-8, **kwargs):
@@ -49,7 +59,7 @@ class StyleFormer(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                nn.LayerNorm(dim),
+                nn.InstanceNorm1d(dim),
                 PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
             ]))
@@ -64,7 +74,7 @@ class StyleFormer(nn.Module):
 
 
 class StyleViT(nn.Module):
-    def __init__(self, image_size, patch_size, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0.0, emb_dropout = 0.0):
+    def __init__(self, image_size, patch_size, dim, depth, heads, mlp_dim, pool = 'mean', channels = 3, dim_head = 64, dropout = 0.0, emb_dropout = 0.0, num_latents = 1):
         super().__init__()
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size'
         num_patches = (image_size // patch_size) ** 2
@@ -77,8 +87,9 @@ class StyleViT(nn.Module):
         self.dropout = nn.Dropout(emb_dropout)
         self.style_convs = nn.ModuleList([
             nn.ModuleList([
-                nn.Conv2d(in_channels=3, out_channels=3, kernel_size=5, stride=1, padding='same', groups=3, bias=False),
-                nn.Linear(patch_dim, dim)
+                DepthWiseConv2d(dim_in=channels, dim_out=channels, kernel_size=5, padding='same', bias=False),
+                nn.Linear(patch_dim, dim, bias=False),
+                nn.Sequential(*([nn.Linear(dim, dim, bias=False) for _ in range(num_latents)]))
             ]) for _ in range(depth)
         ])
         self.transformer = StyleFormer(dim, depth, heads, dim_head, mlp_dim, dropout)
@@ -96,11 +107,12 @@ class StyleViT(nn.Module):
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
         z = img
-        for conv, style in self.style_convs:
+        for conv, proj, style in self.style_convs:
             z = conv(z)
             y = self.to_patch(z)
+            y = proj(y)
             y = style(y)
-            y = torch.cat((cls_tokens, y), dim=1)
+            y = torch.cat((torch.zeros_like(cls_tokens), y), dim=1)
             styles.append(y)
         x = self.transformer(x, styles)
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]

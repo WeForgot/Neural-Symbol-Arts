@@ -49,7 +49,8 @@ def make_encoder(force_new = False):
                 'e_depth': int(os.getenv('E_DEPTH', 6)),
                 'e_heads': int(os.getenv('E_HEADS', 8)),
                 'encoder_type': os.getenv('E_TYPE', 'vit'),
-                'mlp_dim': int(os.getenv('MLP_DIM', 128))
+                'mlp_dim': int(os.getenv('MLP_DIM', 128)),
+                'style_latents': int(os.getenv('STYLE_LATENTS', 1))
             }
             json.dump(metadata, f)
     encoder_type = metadata['encoder_type']
@@ -133,7 +134,8 @@ def make_encoder(force_new = False):
             dim = metadata['dim'],
             depth = metadata['e_depth'],
             heads = metadata['e_heads'],
-            mlp_dim = metadata['mlp_dim']
+            mlp_dim = metadata['mlp_dim'],
+            num_latents = metadata['style_latents']
         )
     else:
         raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
@@ -234,7 +236,7 @@ def main():
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
     use_scaled_loss = False
     use_min_loss = False
-    use_activations = env_bool('USE_ACTIVATIONS')
+    use_activations = env_bool('USE_ACTIVATIONS') and env_bool('CLAMP_DATA')
     enable_pretraining = False
     data_clamped = env_bool('CLAMP_DATA')
     alpha = 0.99
@@ -316,12 +318,12 @@ def main():
                 encoder.eval()
                 decoder.eval()
                 feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
-                #feature = io.imread('EasyTest.png')[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
                 enc = encoder(feature.unsqueeze(0))
                 generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
+                dest_name = 'test_{}'.format(edx)
                 np.save('test.npy', generated)
-                convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
+                convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
                 encoder.train()
                 decoder.train()
             
@@ -332,7 +334,6 @@ def main():
     encoder.load_state_dict(best_encoder)
     decoder.load_state_dict(best_decoder)
     feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
-    #feature = io.imread('EasyTest.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))

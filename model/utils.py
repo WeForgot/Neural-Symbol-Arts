@@ -105,7 +105,7 @@ def load_saml(filepath, weights):
         mask[ldx] = 1
     return saml, mask
 
-def convert_numpy_to_saml(source_path, vocab, dest_path=None, values_clamped=False):
+def convert_numpy_to_saml(source_path, vocab, dest_path=None, name='Test', values_clamped=False):
     if dest_path is None:
         dest_path = source_path[:-3] + 'saml'
     
@@ -123,7 +123,7 @@ def convert_numpy_to_saml(source_path, vocab, dest_path=None, values_clamped=Fal
         saml_lines.reverse()
         xml_data = ET.Element('sa')
         #sa name="さっきゅん" visible="true" version="1" author="10716288" width="192" height="96" sound="3"
-        xml_data.set('name', 'Test')
+        xml_data.set('name', name)
         xml_data.set('visible', 'true')
         xml_data.set('version', '1')
         xml_data.set('author', '1337')

@@ -148,6 +148,7 @@ runs/
 # Various other things
 meta.json
 test.npy
+test*.saml
 test.saml
 vocab.pkl
 data.pkl
