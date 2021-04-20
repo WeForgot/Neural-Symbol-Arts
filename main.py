@@ -236,6 +236,7 @@ def main(args):
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
         for edx in range(max_epochs):
             total_losses = 0
+            blended_losses = 0
             emb_losses = 0
             color_losses = 0
             position_losses = 0
@@ -260,10 +261,11 @@ def main(args):
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
                 total_loss = layer_alpha * emb_loss + color_alpha*  color_loss + position_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
-                total_losses += total_loss.item()
-                emb_losses += emb_loss.item() * layer_alpha
-                color_losses += color_loss.item() * color_alpha
-                position_losses += pos_loss.item() * position_alpha
+                total_losses += emb_loss.item() + color_loss.item() + pos_loss.item()
+                blended_losses += total_loss.item()
+                emb_losses += emb_loss.item()
+                color_losses += color_loss.item()
+                position_losses += pos_loss.item()
                 if isnan(total_losses):
                     print('Batch loss is NaN. Breaking')
                     break
@@ -272,15 +274,13 @@ def main(args):
                 encoder_opt.step()
                 decoder_opt.step()
 
-                if batch_metrics:
-                    print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
                 train_loader.dataset.dataset.new_rand()
             if isnan(total_losses):
                 print('Loss is NaN. Returning', flush = True)
                 return
-            f.write('{},{},{},{},{}\n'.format(edx, total_losses, emb_losses, color_losses, position_losses))
+            f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, emb_losses, color_losses, position_losses, blended_losses))
             f.flush()
-            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, emb_losses, color_losses, position_losses), flush=True)
+            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Blended Loss: {}'.format(edx, total_losses, emb_losses, color_losses, position_losses, blended_losses), flush=True)
             encoder.eval()
             decoder.eval()
 
@@ -295,7 +295,7 @@ def main(args):
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
 
-            total_loss = valid_emb_loss * layer_alpha + valid_color_loss * color_alpha + valid_position_loss * position_alpha
+            total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
             print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss), flush=True)
             v.write('{},{},{},{},{}\n'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
             v.flush()

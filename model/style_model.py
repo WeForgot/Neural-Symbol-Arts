@@ -74,7 +74,7 @@ class StyleFormer(nn.Module):
 
 
 class StyleViT(nn.Module):
-    def __init__(self, image_size, patch_size, dim, depth, heads, mlp_dim, pool = 'mean', channels = 3, dim_head = 64, dropout = 0.0, emb_dropout = 0.0, num_latents = 1):
+    def __init__(self, image_size, patch_size, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0.0, emb_dropout = 0.0, num_latents = 1):
         super().__init__()
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size'
         num_patches = (image_size // patch_size) ** 2

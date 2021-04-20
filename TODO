@@ -1,0 +1,1 @@
+python main.py --epochs=10000 --patience=100 --eval_every=10 --dim=64 --mlp_dim=128 --emb_dim=8 --e_type=style --e_depth=2 --e_heads=8 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=16 --style_latents=3 --layer_alpha=0.3 --color_alpha=0.5 --position_alpha=1.0
