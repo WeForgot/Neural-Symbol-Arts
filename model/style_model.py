@@ -45,19 +45,21 @@ class Conv2DMod(nn.Module):
 class StyleFormer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.0):
         super().__init__()
+        self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
+                nn.LayerNorm(dim),
                 PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
             ]))
 
     def forward(self, x, styles):
-        sdx = 0
-        for attn, ff in self.layers:
-            x = attn(x) + x + styles[sdx]
+        for idx, (ln, attn, ff) in enumerate(self.layers):
+            x = x + styles[idx]
+            x = ln(x)
+            x = attn(x)
             x = ff(x) + x
-            sdx += 1
         return x
 
 
