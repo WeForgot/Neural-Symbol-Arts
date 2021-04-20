@@ -153,6 +153,7 @@ test.saml
 vocab.pkl
 data.pkl
 train_metrics.csv
+valid_metrics.csv
 *.json
 checkpoints/
 data/Unprocessed/

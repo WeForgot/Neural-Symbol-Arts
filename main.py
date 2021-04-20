@@ -179,7 +179,7 @@ def make_decoder(vocab, force_new = False):
         )
     return decoder
 
-def main():
+def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
     if torch.cuda.is_available():
         device = torch.device('cuda')
         print('CUDA available', flush=True)
@@ -199,9 +199,13 @@ def main():
     trainable, untrainable = get_parameter_count(decoder)
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
-    dataset = SADataset(data)
     batch_size = int(os.getenv('BATCH_SIZE', 2))
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    dataset = SADataset(data)
+    valid_split = float(os.getenv('VALIDATION_SPLIT', '0.1'))
+    valid_size = int(len(dataset) * valid_split)
+    train_size = len(dataset) - valid_size
+    train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
+    train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set)
     
     optimizer = os.getenv('OPTIMIZER', 'sgd')
     if optimizer.lower() == 'adam':
@@ -234,14 +238,11 @@ def main():
     best_encoder = None
     best_decoder = None
     batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
-    use_scaled_loss = False
+    use_scaled_loss = env_bool('USE_SCALED_LOSS')
     use_min_loss = False
     use_activations = env_bool('USE_ACTIVATIONS') and env_bool('CLAMP_DATA')
     enable_pretraining = False
     data_clamped = env_bool('CLAMP_DATA')
-    alpha = 0.99
-    alpha_decay = 0.001
-    encoder_warmup = 20
     max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
@@ -252,14 +253,16 @@ def main():
     else:
         loss_func = lambda x: max(x)
     if enable_pretraining:
-        encoder = pretrain_encoder(encoder, dataloader, device, max_patience=10)
-    with open('train_metrics.csv', 'w') as f:
+        encoder = pretrain_encoder(encoder, train_loader, device, max_patience=10)
+    with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
         for edx in range(max_epochs):
             total_losses = []
             emb_losses = []
             color_losses = []
             position_losses = []
-            for bdx, i_batch in enumerate(dataloader):
+            encoder.train()
+            decoder.train()
+            for bdx, i_batch in enumerate(train_loader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
                 encoder_opt.zero_grad()
@@ -277,7 +280,7 @@ def main():
                     emb_loss = scaled_loss * (emb_loss / scalar_emb_loss)
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
-                total_loss = emb_loss + color_loss + pos_loss + (aux_loss if aux_loss is not None else 0)
+                total_loss = emb_alpha * emb_loss + color_alpha*  color_loss + pos_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses.append(total_loss.item())
                 emb_losses.append(emb_loss.item())
                 color_losses.append(color_loss.item())
@@ -292,8 +295,7 @@ def main():
 
                 if batch_metrics:
                     print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
-                dataloader.dataset.new_rand()
-
+                train_loader.dataset.dataset.new_rand()
             total_val = loss_func(total_losses)
             emb_val = loss_func(emb_losses)
             color_val = loss_func(color_losses)
@@ -303,9 +305,28 @@ def main():
                 return
             f.write('{},{},{},{},{}\n'.format(edx, total_val, emb_val, color_val, position_val))
             f.flush()
-            print('Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_val, emb_val, color_val, position_val), flush=True)
-            if best_loss is None or total_val < best_loss:
-                best_loss = total_val
+            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_val, emb_val, color_val, position_val), flush=True)
+            encoder.eval()
+            decoder.eval()
+
+            valid_emb_loss = 0
+            valid_color_loss = 0
+            valid_position_loss = 0
+            for bdx, i_batch in enumerate(valid_loader):
+                feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+                enc = encoder(feature)
+                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=use_activations)
+                valid_emb_loss += emb_loss.item()
+                valid_color_loss += color_loss.item()
+                valid_position_loss += pos_loss.item()
+
+            total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
+            print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss), flush=True)
+            v.write('{},{},{},{},{}\n'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
+            print('------------------------------------------------------------------------------------------------')
+
+            if best_loss is None or total_loss < best_loss:
+                best_loss = total_loss
                 best_encoder = encoder.state_dict()
                 best_decoder = decoder.state_dict()
                 cur_patience = 0
@@ -317,7 +338,7 @@ def main():
                 torch.save(best_decoder, 'decoder.pt')
                 encoder.eval()
                 decoder.eval()
-                feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
+                feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
                 enc = encoder(feature.unsqueeze(0))
                 generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
@@ -333,7 +354,7 @@ def main():
             
     encoder.load_state_dict(best_encoder)
     decoder.load_state_dict(best_decoder)
-    feature = io.imread(os.path.join('.','data','BetterSymbolArts','processed','ジェネＣ＠プラウ.png'))[:,:,:3].astype(np.float32) / 255.
+    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     enc = encoder(feature.unsqueeze(0))
     generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
@@ -343,4 +364,5 @@ def main():
     print(generated.shape, flush=True)
 
 if __name__ == '__main__':
+    
     main()
