@@ -22,6 +22,7 @@ from vit_pytorch.cvt import CvT
 from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
+from model.style_model import StyleViT
 
 from model.model import AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
@@ -125,6 +126,15 @@ def make_encoder(force_new = False):
                 heads = metadata['e_heads']
             )
         )
+    elif encoder_type == 'style':
+        encoder = StyleViT(
+            image_size = 576,
+            patch_size = metadata['patch_size'],
+            dim = metadata['dim'],
+            depth = metadata['e_depth'],
+            heads = metadata['e_heads'],
+            mlp_dim = metadata['mlp_dim']
+        )
     else:
         raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
     return encoder
@@ -225,7 +235,7 @@ def main():
     use_scaled_loss = False
     use_min_loss = False
     use_activations = env_bool('USE_ACTIVATIONS')
-    enable_pretraining = True
+    enable_pretraining = False
     data_clamped = env_bool('CLAMP_DATA')
     alpha = 0.99
     alpha_decay = 0.001
