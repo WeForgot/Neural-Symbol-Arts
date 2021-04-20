@@ -232,19 +232,13 @@ def main(args):
     best_encoder = None
     best_decoder = None
     cur_patience = 0
-    criteria = 'sum'
-    if criteria == 'sum':
-        loss_func = lambda x: sum(x)
-    elif criteria == 'mean':
-        loss_func = lambda x: sum(x) / len(x)
-    else:
-        loss_func = lambda x: max(x)
+
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
         for edx in range(max_epochs):
-            total_losses = []
-            emb_losses = []
-            color_losses = []
-            position_losses = []
+            total_losses = 0
+            emb_losses = 0
+            color_losses = 0
+            position_losses = 0
             encoder.train()
             decoder.train()
             for bdx, i_batch in enumerate(train_loader):
@@ -266,11 +260,11 @@ def main(args):
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
                 total_loss = layer_alpha * emb_loss + color_alpha*  color_loss + position_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
-                total_losses.append(total_loss.item())
-                emb_losses.append(emb_loss.item())
-                color_losses.append(color_loss.item())
-                position_losses.append(pos_loss.item())
-                if isnan(total_losses[-1]):
+                total_losses += total_loss.item()
+                emb_losses += emb_loss.item() * layer_alpha
+                color_losses += color_loss.item() * color_alpha
+                position_losses += pos_loss.item() * position_alpha
+                if isnan(total_losses):
                     print('Batch loss is NaN. Breaking')
                     break
                 total_loss.backward()
@@ -281,16 +275,12 @@ def main(args):
                 if batch_metrics:
                     print('Batch #{}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Balanced Loss: {}'.format(bdx, scalar_emb_loss, scalar_color_loss, scalar_position_loss, scaled_loss), flush=True)
                 train_loader.dataset.dataset.new_rand()
-            total_val = loss_func(total_losses)
-            emb_val = loss_func(emb_losses)
-            color_val = loss_func(color_losses)
-            position_val = loss_func(position_losses)
-            if isnan(total_val):
+            if isnan(total_losses):
                 print('Loss is NaN. Returning', flush = True)
                 return
-            f.write('{},{},{},{},{}\n'.format(edx, total_val, emb_val, color_val, position_val))
+            f.write('{},{},{},{},{}\n'.format(edx, total_losses, emb_losses, color_losses, position_losses))
             f.flush()
-            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_val, emb_val, color_val, position_val), flush=True)
+            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, emb_losses, color_losses, position_losses), flush=True)
             encoder.eval()
             decoder.eval()
 
