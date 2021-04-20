@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 import json
 from math import isnan
 from statistics import mean
@@ -26,7 +27,7 @@ from model.style_model import StyleViT
 
 from model.model import AutoregressiveDecoder, pretrain_encoder
 from model.datasets import SADataset
-from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml
+from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool
 
 load_dotenv()
 
@@ -37,20 +38,20 @@ def freeze_model(model, freeze=True):
    for param in model.parameters():
       param.requires_grad = not freeze
 
-def make_encoder(force_new = False):
+def make_encoder(args, force_new = False):
     if os.path.exists('encoder_meta.json') and not force_new:
         with open('encoder_meta.json', 'r') as f:
             metadata = json.load(f)
     else:
         with open('encoder_meta.json', 'w') as f:
             metadata = {
-                'dim': int(os.getenv('DIM', 128)),
-                'patch_size': int(os.getenv('PATCH_SIZE', 32)),
-                'e_depth': int(os.getenv('E_DEPTH', 6)),
-                'e_heads': int(os.getenv('E_HEADS', 8)),
-                'encoder_type': os.getenv('E_TYPE', 'vit'),
-                'mlp_dim': int(os.getenv('MLP_DIM', 128)),
-                'style_latents': int(os.getenv('STYLE_LATENTS', 1))
+                'dim': args.dim,
+                'patch_size': args.patch_size,
+                'e_depth': args.e_depth,
+                'e_heads': args.e_heads,
+                'encoder_type': args.e_type,
+                'mlp_dim': args.mlp_dim,
+                'style_latents': args.style_latents
             }
             json.dump(metadata, f)
     encoder_type = metadata['encoder_type']
@@ -141,7 +142,7 @@ def make_encoder(force_new = False):
         raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
     return encoder
 
-def make_decoder(vocab, force_new = False):
+def make_decoder(args, vocab, force_new = False):
     if os.path.exists('decoder_meta.json') and os.path.exists('decoder.pt') and not force_new:
         with open('decoder_meta.json', 'r') as f:
             metadata = json.load(f)
@@ -159,12 +160,12 @@ def make_decoder(vocab, force_new = False):
         with open('decoder_meta.json', 'w') as f:
             metadata = {
                 'layer_count': len(vocab),
-                'dim': int(os.getenv('DIM', 32)),
-                'emb_dim': int(os.getenv('EMB_DIM', 8)),
-                'd_depth': int(os.getenv('D_DEPTH', 6)),
-                'd_heads': int(os.getenv('D_HEADS', 8)),
-                'emb_drop': float(os.getenv('EMB_DROP', 0.0)),
-                'decoder_type': os.getenv('D_TYPE', '')
+                'dim': args.dim,
+                'emb_dim': args.emb_dim,
+                'd_depth': args.d_depth,
+                'd_heads': args.d_heads,
+                'emb_drop': args.emb_drop,
+                'decoder_type': args.d_type
             }
             json.dump(metadata, f)
 
@@ -179,7 +180,24 @@ def make_decoder(vocab, force_new = False):
         )
     return decoder
 
-def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
+def main(args):
+    max_epochs = args.epochs
+    max_patience = args.patience
+    optimizer = args.optimizer
+    batch_size = args.batch_size
+    batch_metrics = args.batch_metrics
+    use_activations = args.activations
+    use_scaled_loss = args.scaled_loss
+    valid_split = args.valid_split
+    eval_every = args.eval_every
+
+    layer_alpha = args.layer_alpha
+    color_alpha = args.color_alpha
+    position_alpha = args.position_alpha
+
+    target_length = 225
+    data_clamped = True
+
     if torch.cuda.is_available():
         device = torch.device('cuda')
         print('CUDA available', flush=True)
@@ -190,8 +208,8 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    encoder = make_encoder(force_new=True).to(device)
-    decoder = make_decoder(vocab, force_new=True).to(device)
+    encoder = make_encoder(args).to(device)
+    decoder = make_decoder(vocab, args).to(device)
     print(encoder, flush=True)
     trainable, untrainable = get_parameter_count(encoder)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
@@ -199,9 +217,7 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
     trainable, untrainable = get_parameter_count(decoder)
     print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
-    batch_size = int(os.getenv('BATCH_SIZE', 2))
     dataset = SADataset(data)
-    valid_split = float(os.getenv('VALIDATION_SPLIT', '0.1'))
     valid_size = int(len(dataset) * valid_split)
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
@@ -228,22 +244,11 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
         encoder_opt = optim.SGD(encoder.parameters(), lr=1e-2, momentum=0.1)
         decoder_opt = optim.SGD(decoder.parameters(), lr=1e-2, momentum=0.1)
     
-    
-    target_length = int(os.getenv('TARGET_LENGTH', 225))
-    eval_every = int(os.getenv('EVAL_EVERY', 20))
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
-    max_epochs = int(os.getenv('EPOCHS', 100))
     best_loss = None
     best_encoder = None
     best_decoder = None
-    batch_metrics = True if os.getenv('BATCH_METRICS', 'true').lower() == 'true' else False
-    use_scaled_loss = env_bool('USE_SCALED_LOSS')
-    use_min_loss = False
-    use_activations = env_bool('USE_ACTIVATIONS') and env_bool('CLAMP_DATA')
-    enable_pretraining = False
-    data_clamped = env_bool('CLAMP_DATA')
-    max_patience = int(os.getenv('MAX_PATIENCE', 5))
     cur_patience = 0
     criteria = 'sum'
     if criteria == 'sum':
@@ -252,8 +257,6 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
         loss_func = lambda x: sum(x) / len(x)
     else:
         loss_func = lambda x: max(x)
-    if enable_pretraining:
-        encoder = pretrain_encoder(encoder, train_loader, device, max_patience=10)
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
         for edx in range(max_epochs):
             total_losses = []
@@ -274,13 +277,13 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
                 scalar_emb_loss = emb_loss.item()
                 scalar_color_loss = color_loss.item()
                 scalar_position_loss = pos_loss.item()
-                scaled_loss = min(scalar_emb_loss, scalar_color_loss, scalar_position_loss) if use_min_loss else mean([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
+                scaled_loss = min([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
 
                 if use_scaled_loss:
                     emb_loss = scaled_loss * (emb_loss / scalar_emb_loss)
                     color_loss = scaled_loss * (color_loss / scalar_color_loss)
                     pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
-                total_loss = emb_alpha * emb_loss + color_alpha*  color_loss + pos_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
+                total_loss = layer_alpha * emb_loss + color_alpha*  color_loss + position_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses.append(total_loss.item())
                 emb_losses.append(emb_loss.item())
                 color_losses.append(color_loss.item())
@@ -363,6 +366,34 @@ def main(emb_alpha=1.0, color_alpha=1.0, pos_alpha=1.0):
     print(generated, flush=True)
     print(generated.shape, flush=True)
 
+parser = ArgumentParser()
+parser.add_argument('--epochs', default=100, type=int, help='Maximum number of epochs to train')
+parser.add_argument('--patience', default=20, type=int, help='Maximum patience while training (set to equal --epochs if you want no patience)')
+parser.add_argument('--optimizer', default='adam', type=str, help='Which optimizer to use, defaults to Adam')
+parser.add_argument('--batch_size', default=4, type=int, help='What batch size to use')
+parser.add_argument('--batch_metrics', default=False, type=str2bool, help='Whether or not to print metrics per batch')
+parser.add_argument('--activations', default=False, type=str2bool, help='Whether to use sigmoid and tanh activations for color and position respectively. Otherwise defaults to linear')
+parser.add_argument('--valid_split', default=0.1, type=float, help='What percent of the dataset should be used for validation')
+parser.add_argument('--scaled_loss', default=False, type=str2bool, help='Whether to scale loss by the L1 norm')
+parser.add_argument('--eval_every', default=10, type=int, help='How often (in epochs) to evaluate the model on a test image')
+parser.add_argument('--dim', default=32, type=int, help='What the inner dimension of the transformer should be')
+parser.add_argument('--mlp_dim', default=32, type=int, help='What the feed forward MLP dimension should be')
+parser.add_argument('--emb_dim', default=4, type=int, help='Size of the embedding dimension for layers')
+parser.add_argument('--emb_drop', default=0.1, type=float, help='How likely dropout occurs on layer embeddings')
+parser.add_argument('--e_depth', default=1, type=int, help='How many layers should be in the encoder')
+parser.add_argument('--e_heads', default=8, type=int, help='How many heads should be in the encoder')
+parser.add_argument('--d_depth', default=1, type=int, help='How many layers should be in the decoder')
+parser.add_argument('--d_heads', default=8, type=int, help='How many heads should be in the decoder')
+parser.add_argument('--patch_size', default=32, type=int, help='How large each patch should be in the encoder. Does not apply to the CvT encoder')
+parser.add_argument('--style_latents', default=1, type=int, help='Number of latent layers to use for StyleViT')
+parser.add_argument('--e_type', default='vanilla', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
+parser.add_argument('--d_type', default='vanilla', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
+
+parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
+parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
+parser.add_argument('--position_alpha', default=1.0, type=float, help='The scaling factor for the position prediction loss')
+
+args = parser.parse_args()
+
 if __name__ == '__main__':
-    
-    main()
+    main(args)
