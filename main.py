@@ -38,22 +38,18 @@ def freeze_model(model, freeze=True):
    for param in model.parameters():
       param.requires_grad = not freeze
 
-def make_encoder(args, force_new = False):
-    if os.path.exists('encoder_meta.json') and not force_new:
-        with open('encoder_meta.json', 'r') as f:
-            metadata = json.load(f)
-    else:
-        with open('encoder_meta.json', 'w') as f:
-            metadata = {
-                'dim': args.dim,
-                'patch_size': args.patch_size,
-                'e_depth': args.e_depth,
-                'e_heads': args.e_heads,
-                'encoder_type': args.e_type,
-                'mlp_dim': args.mlp_dim,
-                'style_latents': args.style_latents
-            }
-            json.dump(metadata, f)
+def make_encoder(args):
+    with open('encoder_meta.json', 'w') as f:
+        metadata = {
+            'dim': args.dim,
+            'patch_size': args.patch_size,
+            'e_depth': args.e_depth,
+            'e_heads': args.e_heads,
+            'encoder_type': args.e_type,
+            'mlp_dim': args.mlp_dim,
+            'style_latents': args.style_latents
+        }
+        json.dump(metadata, f)
     encoder_type = metadata['encoder_type']
     if encoder_type == 'vit':
         encoder = ViT(
@@ -142,42 +138,28 @@ def make_encoder(args, force_new = False):
         raise ValueError('Please choose an appropriate encoder type from [vit, t2t, levit, cvt]')
     return encoder
 
-def make_decoder(args, vocab, force_new = False):
-    if os.path.exists('decoder_meta.json') and os.path.exists('decoder.pt') and not force_new:
-        with open('decoder_meta.json', 'r') as f:
-            metadata = json.load(f)
-        decoder = AutoregressiveDecoder(
-            d_dim = metadata['dim'],
-            layer_count = metadata['layer_count'],
-            emb_dim = metadata['emb_dim'],
-            d_depth = metadata['d_depth'],
-            d_heads = metadata['d_heads'],
-            emb_drop = metadata['emb_drop'],
-            decoder_type = metadata['decoder_type']
-        )
-        decoder.load_state_dict(torch.load('decoder.pt'))
-    else:
-        with open('decoder_meta.json', 'w') as f:
-            metadata = {
-                'layer_count': len(vocab),
-                'dim': args.dim,
-                'emb_dim': args.emb_dim,
-                'd_depth': args.d_depth,
-                'd_heads': args.d_heads,
-                'emb_drop': args.emb_drop,
-                'decoder_type': args.d_type
-            }
-            json.dump(metadata, f)
+def make_decoder(vocab, args):
+    with open('decoder_meta.json', 'w') as f:
+        metadata = {
+            'layer_count': len(vocab),
+            'dim': args.dim,
+            'emb_dim': args.emb_dim,
+            'd_depth': args.d_depth,
+            'd_heads': args.d_heads,
+            'emb_drop': args.emb_drop,
+            'decoder_type': args.d_type
+        }
+        json.dump(metadata, f)
 
-        decoder = AutoregressiveDecoder(
-            layer_count = metadata['layer_count'],
-            emb_dim = metadata['emb_dim'],
-            d_depth = metadata['d_depth'],
-            d_heads = metadata['d_heads'],
-            d_dim = metadata['dim'],
-            emb_drop = metadata['emb_drop'],
-            decoder_type = metadata['decoder_type']
-        )
+    decoder = AutoregressiveDecoder(
+        layer_count = metadata['layer_count'],
+        emb_dim = metadata['emb_dim'],
+        d_depth = metadata['d_depth'],
+        d_heads = metadata['d_heads'],
+        d_dim = metadata['dim'],
+        emb_drop = metadata['emb_drop'],
+        decoder_type = metadata['decoder_type']
+    )
     return decoder
 
 def main(args):
