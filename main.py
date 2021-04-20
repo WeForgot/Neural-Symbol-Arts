@@ -295,9 +295,10 @@ def main(args):
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
 
-            total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
+            total_loss = valid_emb_loss * layer_alpha + valid_color_loss * color_alpha + valid_position_loss * position_alpha
             print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss), flush=True)
             v.write('{},{},{},{},{}\n'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
+            v.flush()
             print('------------------------------------------------------------------------------------------------')
 
             if best_loss is None or total_loss < best_loss:
@@ -308,7 +309,7 @@ def main(args):
             else:
                 cur_patience += 1
             
-            if edx % eval_every == 0:
+            if eval_every > 0 and edx % eval_every == 0:
                 torch.save(best_encoder, 'encoder.pt')
                 torch.save(best_decoder, 'decoder.pt')
                 encoder.eval()
@@ -340,14 +341,14 @@ def main(args):
 
 parser = ArgumentParser()
 parser.add_argument('--epochs', default=100, type=int, help='Maximum number of epochs to train')
-parser.add_argument('--patience', default=20, type=int, help='Maximum patience while training (set to equal --epochs if you want no patience)')
+parser.add_argument('--patience', default=100, type=int, help='Maximum patience while training (set to equal --epochs if you want no patience)')
 parser.add_argument('--optimizer', default='adam', type=str, help='Which optimizer to use, defaults to Adam')
 parser.add_argument('--batch_size', default=4, type=int, help='What batch size to use')
 parser.add_argument('--batch_metrics', default=False, type=str2bool, help='Whether or not to print metrics per batch')
 parser.add_argument('--activations', default=False, type=str2bool, help='Whether to use sigmoid and tanh activations for color and position respectively. Otherwise defaults to linear')
-parser.add_argument('--valid_split', default=0.1, type=float, help='What percent of the dataset should be used for validation')
+parser.add_argument('--valid_split', default=0.3, type=float, help='What percent of the dataset should be used for validation')
 parser.add_argument('--scaled_loss', default=False, type=str2bool, help='Whether to scale loss by the L1 norm')
-parser.add_argument('--eval_every', default=10, type=int, help='How often (in epochs) to evaluate the model on a test image')
+parser.add_argument('--eval_every', default=0, type=int, help='How often (in epochs) to evaluate the model on a test image')
 parser.add_argument('--dim', default=32, type=int, help='What the inner dimension of the transformer should be')
 parser.add_argument('--mlp_dim', default=32, type=int, help='What the feed forward MLP dimension should be')
 parser.add_argument('--emb_dim', default=4, type=int, help='Size of the embedding dimension for layers')
@@ -358,7 +359,7 @@ parser.add_argument('--d_depth', default=1, type=int, help='How many layers shou
 parser.add_argument('--d_heads', default=8, type=int, help='How many heads should be in the decoder')
 parser.add_argument('--patch_size', default=32, type=int, help='How large each patch should be in the encoder. Does not apply to the CvT encoder')
 parser.add_argument('--style_latents', default=1, type=int, help='Number of latent layers to use for StyleViT')
-parser.add_argument('--e_type', default='vanilla', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
+parser.add_argument('--e_type', default='vit', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
 parser.add_argument('--d_type', default='vanilla', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')

@@ -157,3 +157,4 @@ valid_metrics.csv
 *.json
 checkpoints/
 data/Unprocessed/
+cross_valid.bat
