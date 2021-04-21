@@ -83,6 +83,7 @@ def main(args):
     cur_patience = 0
 
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
+        print('Training start')
         for edx in range(max_epochs):
             model.train()
             total_losses = 0
