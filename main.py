@@ -122,7 +122,7 @@ def main(args):
                 return
             f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses))
             f.flush()
-            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Blended Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses), flush=True)
+            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses), flush=True)
             model.eval()
 
             valid_emb_loss = 0
