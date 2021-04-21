@@ -2,9 +2,12 @@ from argparse import ArgumentParser
 import json
 from math import isnan
 from statistics import mean
+from glob import glob
 import os
+from pathlib import Path
 import pickle
 import random
+import re
 
 from dotenv import load_dotenv
 import numpy as np
@@ -29,6 +32,7 @@ def main(args):
     valid_split = args.valid_split
     eval_every = args.eval_every
     thicc_ff = args.thicc_ff
+    name = args.name
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
@@ -47,19 +51,62 @@ def main(args):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    model = EndToEndModel(args.e_type, args.d_type, len(vocab),
-                          image_size = 576,
-                          patch_size = args.patch_size,
-                          dim = args.dim,
-                          emb_dim = args.emb_dim,
-                          e_depth = args.e_depth,
-                          e_heads = args.e_heads,
-                          d_depth = args.d_depth,
-                          d_heads = args.d_heads,
-                          mlp_dim = args.mlp_dim,
-                          num_latents = args.style_latents,
-                          emb_drop = args.emb_drop,
-                          thicc_ff=thicc_ff).to(device)
+    if os.path.exists('meta.json') and os.path.exists('model.pt'):
+        with open('meta.json', 'r') as f:
+            metadata = json.load(f)
+        model = EndToEndModel(metadata['e_type'], metadata['d_type'], metadata['vocab_len'],
+                            image_size = metadata['image_size'],
+                            patch_size = metadata['patch_size'],
+                            dim = metadata['dim'],
+                            emb_dim = metadata['emb_dim'],
+                            e_depth = metadata['e_depth'],
+                            e_heads = metadata['e_heads'],
+                            d_depth = metadata['d_depth'],
+                            d_heads = metadata['d_heads'],
+                            mlp_dim = metadata['mlp_dim'],
+                            num_latents = metadata['num_latents'],
+                            emb_drop = metadata['emb_drop'],
+                            thicc_ff=metadata['thicc_ff']).to(device)
+        model.load_state_dict(torch.load('model.pt'))
+        epoch = metadata['epoch']
+        
+    else:
+        model = EndToEndModel(args.e_type, args.d_type, len(vocab),
+                            image_size = 576,
+                            patch_size = args.patch_size,
+                            dim = args.dim,
+                            emb_dim = args.emb_dim,
+                            e_depth = args.e_depth,
+                            e_heads = args.e_heads,
+                            d_depth = args.d_depth,
+                            d_heads = args.d_heads,
+                            mlp_dim = args.mlp_dim,
+                            num_latents = args.style_latents,
+                            emb_drop = args.emb_drop,
+                            thicc_ff=thicc_ff).to(device)
+        torch.save(model.state_dict(), 'model.pt')
+        metadata = {
+            'epoch': 0,
+            'e_type': args.e_type,
+            'd_type': args.d_type,
+            'vocab_len': len(vocab),
+            'image_size': 576,
+            'patch_size': args.patch_size,
+            'dim': args.dim,
+            'emb_dim': args.emb_dim,
+            'e_depth': args.e_depth,
+            'e_heads': args.e_heads,
+            'd_depth': args.d_depth,
+            'd_heads': args.d_heads,
+            'mlp_dim': args.mlp_dim,
+            'num_latents': args.style_latents,
+            'emb_drop': args.emb_drop,
+            'thicc_ff': args.thicc_ff
+        }
+        epoch = 0
+        with open('meta.json', 'w') as f:
+            json.dump(metadata, f)
+
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
@@ -71,10 +118,18 @@ def main(args):
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
 
     optimizer = args.optimizer
+    model_scd = None
     if optimizer == 'adam':
         model_opt = optim.Adam(model.parameters(), lr=1e-3)
+    elif optimizer == 'adamw':
+        model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-3)
+        model_opt = optim.SGD(model.parameters(), lr=1e-5, momentum=0.1, weight_decay=1e-5)
+        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
+    if os.path.exists('optim.pt'):
+        model_opt.load_state_dict(torch.load('optim.pt'))
+    else:
+        torch.save(model_opt.state_dict(), 'optim.pt')
     
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
@@ -83,8 +138,8 @@ def main(args):
     cur_patience = 0
 
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
-        print('Training start')
-        for edx in range(max_epochs):
+        print('Training start. Starting at epoch {}'.format(epoch))
+        for edx in range(epoch, max_epochs):
             model.train()
             total_losses = 0
             blended_losses = 0
@@ -111,10 +166,12 @@ def main(args):
                     batch_position += position_loss.item()
                     if isnan(total_loss.item()):
                         print('Batch loss is NaN. Breaking')
-                        break
+                        return
                 total_loss.backward()
 
                 model_opt.step()
+                if model_scd is not None:
+                    model_scd.step()
                 if batch_metrics:
                     print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, total_loss.item(), batch_layer, batch_color, batch_position))
             if isnan(total_losses):
@@ -123,6 +180,8 @@ def main(args):
             f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses))
             f.flush()
             print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses), flush=True)
+            
+            # Prep model for validation
             model.eval()
 
             valid_emb_loss = 0
@@ -142,6 +201,15 @@ def main(args):
             v.flush()
             print('------------------------------------------------------------------------------------------------')
 
+
+            # Saving after epoch
+            torch.save(model.state_dict(), 'model.pt')
+            torch.save(model_opt.state_dict(), 'optim.pt')
+            metadata['epoch'] += 1
+            with open('meta.json', 'w') as f:
+                json.dump(metadata, f)
+            
+            # Checking if it is a new PB
             if best_loss is None or total_loss < best_loss:
                 best_loss = total_loss
                 best_model = model.state_dict()
@@ -149,6 +217,7 @@ def main(args):
             else:
                 cur_patience += 1
             
+            # Evaluate model on test file if it is time
             if eval_every > 0 and edx % eval_every == 0:
                 torch.save(best_model, 'model.pt')
                 model.eval()
@@ -159,6 +228,7 @@ def main(args):
                 np.save('test.npy', generated)
                 convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
             
+            # Break if the progress has gone stale
             if cur_patience > max_patience:
                 print('Out of patience. Breaking', flush=True)
                 break
@@ -194,6 +264,7 @@ parser.add_argument('--style_latents', default=1, type=int, help='Number of late
 parser.add_argument('--e_type', default='vit', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
 parser.add_argument('--d_type', default='decoder', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
 parser.add_argument('--thicc_ff', default=False, type=str2bool, help='Whether to use the more robust feed forward sequence on final decoder outputs')
+parser.add_argument('--name', default='', type=str, help='Name of checkpoint. If it already exists then we load it. You need to manually delete a checkpoint if you want to write over it')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
