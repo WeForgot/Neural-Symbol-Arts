@@ -94,23 +94,28 @@ def main(args):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
                 model_opt.zero_grad()
+                total_loss = 0
+                batch_layer, batch_color, batch_position = 0, 0, 0
+                for ldx in range(2, label.shape[1]):
+                    layer_loss, color_loss, position_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
 
-                layer_loss, color_loss, position_loss, aux_loss = model(feature, label, mask=mask)
-
-                total_loss = layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
-                total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
-                blended_losses += total_loss.item()
-                layer_losses += layer_loss.item()
-                color_losses += color_loss.item()
-                position_losses += position_loss.item()
-                if isnan(total_loss.item()):
-                    print('Batch loss is NaN. Breaking')
-                    break
+                    total_loss += layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
+                    total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
+                    blended_losses += total_loss.item()
+                    layer_losses += layer_loss.item()
+                    color_losses += color_loss.item()
+                    position_losses += position_loss.item()
+                    batch_layer += layer_loss.item()
+                    batch_color += color_loss.item()
+                    batch_position += position_loss.item()
+                    if isnan(total_loss.item()):
+                        print('Batch loss is NaN. Breaking')
+                        break
                 total_loss.backward()
 
                 model_opt.step()
-
-                train_loader.dataset.dataset.new_rand()
+                if batch_metrics:
+                    print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, total_loss.item(), batch_layer, batch_color, batch_position))
             if isnan(total_losses):
                 print('Loss is NaN. Returning', flush = True)
                 return
@@ -124,10 +129,11 @@ def main(args):
             valid_position_loss = 0
             for bdx, i_batch in enumerate(valid_loader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label, mask=mask)
-                valid_emb_loss += emb_loss.item()
-                valid_color_loss += color_loss.item()
-                valid_position_loss += pos_loss.item()
+                for ldx in range(2, label.shape[1]):
+                    emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                    valid_emb_loss += emb_loss.item()
+                    valid_color_loss += color_loss.item()
+                    valid_position_loss += pos_loss.item()
 
             total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
             print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss), flush=True)

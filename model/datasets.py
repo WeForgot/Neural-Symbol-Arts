@@ -120,7 +120,7 @@ class SADataset(Dataset):
         self.data = data
         self.rand_max = 227
         #self.cur_rand = random.randint(2, self.rand_max-1)
-        self.cur_rand = self.rand_max-1
+        self.cur_rand = self.rand_max
         self.idx_list = list(range(2, self.rand_max))
     
     def new_rand(self, ceiling=-1):
