@@ -12,27 +12,11 @@ from skimage import io
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
-from vit_pytorch.vit import ViT
-from vit_pytorch.efficient import ViT as EfficientViT
-from vit_pytorch.t2t import T2TViT
-from vit_pytorch.levit import LeViT
-from vit_pytorch.cvt import CvT
-from vit_pytorch.rvt import RvT
-from nystrom_attention import Nystromformer
-from routing_transformer import RoutingTransformer
-from model.style_model import StyleViT
-
-from model.model import AutoregressiveDecoder, pretrain_encoder
+from model.model import EndToEndModel
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool
-
-load_dotenv()
-
-def env_bool(variable):
-    return True if os.getenv(variable, 'true').lower() == 'true' else False
 
 def freeze_model(model, freeze=True):
    for param in model.parameters():
@@ -190,107 +174,83 @@ def main(args):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    encoder = make_encoder(args).to(device)
-    decoder = make_decoder(vocab, args).to(device)
-    print(encoder, flush=True)
-    trainable, untrainable = get_parameter_count(encoder)
+    model = EndToEndModel(args.e_type, args.d_type, len(vocab),
+                          image_size = 576,
+                          patch_size = args.patch_size,
+                          dim = args.dim,
+                          emb_dim = args.emb_dim,
+                          e_depth = args.e_depth,
+                          e_heads = args.e_heads,
+                          d_depth = args.d_depth,
+                          d_heads = args.d_heads,
+                          mlp_dim = args.mlp_dim,
+                          num_latents = args.style_latents,
+                          emb_drop = args.emb_drop).to(device)
+    print(model)
+    trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
-    print(decoder, flush=True)
-    trainable, untrainable = get_parameter_count(decoder)
-    print('Total decoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
     
     dataset = SADataset(data)
     valid_size = int(len(dataset) * valid_split)
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set)
-    
-    optimizer = os.getenv('OPTIMIZER', 'sgd')
-    if optimizer.lower() == 'adam':
-        encoder_opt = optim.Adam(encoder.parameters(), lr=1e-3)
-        decoder_opt = optim.Adam(decoder.parameters(), lr=1e-3)
-    elif optimizer.lower() == 'adamw':
-        encoder_opt = optim.AdamW(encoder.parameters(), lr=3e-4)
-        decoder_opt = optim.AdamW(decoder.parameters(), lr=3e-4)
-    elif optimizer.lower() == 'asgd':
-        encoder_opt = optim.ASGD(encoder.parameters(), lr=1e-3)
-        decoder_opt = optim.ASGD(decoder.parameters(), lr=1e-3)
-    elif optimizer.lower() == 'rmsprop':
-        encoder_opt = optim.RMSprop(encoder.parameters(), lr=1e-3)
-        decoder_opt = optim.RMSprop(decoder.parameters(), lr=1e-3)
-    elif optimizer.lower() == 'adabelief':
-        from adabelief_pytorch.AdaBelief import AdaBelief
-        encoder_opt = AdaBelief(encoder.parameters(), lr=1e-3, weight_decay=1e-4, print_change_log=False)
-        decoder_opt = AdaBelief(decoder.parameters(), lr=1e-3, weight_decay=1e-4, print_change_log=False)
+
+    optimizer = args.optimizer
+    if optimizer == 'adam':
+        model_opt = optim.Adam(model.parameters(), lr=1e-3)
     else:
-        encoder_opt = optim.SGD(encoder.parameters(), lr=1e-2, momentum=0.1)
-        decoder_opt = optim.SGD(decoder.parameters(), lr=1e-2, momentum=0.1)
+        model_opt = optim.SGD(model.parameters(), lr=1e-3)
     
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     best_loss = None
-    best_encoder = None
-    best_decoder = None
+    best_model = None
     cur_patience = 0
 
     with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
         for edx in range(max_epochs):
+            model.train()
             total_losses = 0
             blended_losses = 0
-            emb_losses = 0
+            layer_losses = 0
             color_losses = 0
             position_losses = 0
-            encoder.train()
-            decoder.train()
             for bdx, i_batch in enumerate(train_loader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
-                encoder_opt.zero_grad()
-                decoder_opt.zero_grad()
+                model_opt.zero_grad()
 
-                enc = encoder(feature)
-                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=use_activations)
+                layer_loss, color_loss, position_loss, aux_loss = model(feature, label, mask=mask)
 
-                scalar_emb_loss = emb_loss.item()
-                scalar_color_loss = color_loss.item()
-                scalar_position_loss = pos_loss.item()
-                scaled_loss = min([scalar_emb_loss, scalar_color_loss, scalar_position_loss])
-
-                if use_scaled_loss:
-                    emb_loss = scaled_loss * (emb_loss / scalar_emb_loss)
-                    color_loss = scaled_loss * (color_loss / scalar_color_loss)
-                    pos_loss = scaled_loss * (pos_loss / scalar_position_loss)
-                total_loss = layer_alpha * emb_loss + color_alpha*  color_loss + position_alpha * pos_loss + (aux_loss if aux_loss is not None else 0)
-                total_losses += emb_loss.item() + color_loss.item() + pos_loss.item()
+                total_loss = layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
+                total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
-                emb_losses += emb_loss.item()
+                layer_losses += layer_loss.item()
                 color_losses += color_loss.item()
-                position_losses += pos_loss.item()
-                if isnan(total_losses):
+                position_losses += position_loss.item()
+                if isnan(total_loss.item()):
                     print('Batch loss is NaN. Breaking')
                     break
                 total_loss.backward()
 
-                encoder_opt.step()
-                decoder_opt.step()
+                model_opt.step()
 
                 train_loader.dataset.dataset.new_rand()
             if isnan(total_losses):
                 print('Loss is NaN. Returning', flush = True)
                 return
-            f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, emb_losses, color_losses, position_losses, blended_losses))
+            f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses))
             f.flush()
-            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Blended Loss: {}'.format(edx, total_losses, emb_losses, color_losses, position_losses, blended_losses), flush=True)
-            encoder.eval()
-            decoder.eval()
+            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Blended Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses), flush=True)
+            model.eval()
 
             valid_emb_loss = 0
             valid_color_loss = 0
             valid_position_loss = 0
             for bdx, i_batch in enumerate(valid_loader):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                enc = encoder(feature)
-                emb_loss, color_loss, pos_loss, aux_loss = decoder(label,mask, context=enc, return_both_loss=True, loss_func=nn.functional.mse_loss, use_activations=use_activations)
+                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label, mask=mask)
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
@@ -303,37 +263,28 @@ def main(args):
 
             if best_loss is None or total_loss < best_loss:
                 best_loss = total_loss
-                best_encoder = encoder.state_dict()
-                best_decoder = decoder.state_dict()
+                best_model = model.state_dict()
                 cur_patience = 0
             else:
                 cur_patience += 1
             
             if eval_every > 0 and edx % eval_every == 0:
-                torch.save(best_encoder, 'encoder.pt')
-                torch.save(best_decoder, 'decoder.pt')
-                encoder.eval()
-                decoder.eval()
+                torch.save(best_model, 'model.pt')
+                model.eval()
                 feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
                 feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
-                enc = encoder(feature.unsqueeze(0))
-                generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
+                generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
                 dest_name = 'test_{}'.format(edx)
                 np.save('test.npy', generated)
                 convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
-                encoder.train()
-                decoder.train()
             
             if cur_patience > max_patience:
                 print('Out of patience. Breaking', flush=True)
                 break
-            
-    encoder.load_state_dict(best_encoder)
-    decoder.load_state_dict(best_decoder)
+    model.load_state_dict(best_model)
     feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
-    enc = encoder(feature.unsqueeze(0))
-    generated = np.asarray(decoder.generate(enc, vocab, 225, use_activations=use_activations))
+    generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)
     convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
     print(generated, flush=True)
@@ -360,7 +311,7 @@ parser.add_argument('--d_heads', default=8, type=int, help='How many heads shoul
 parser.add_argument('--patch_size', default=32, type=int, help='How large each patch should be in the encoder. Does not apply to the CvT encoder')
 parser.add_argument('--style_latents', default=1, type=int, help='Number of latent layers to use for StyleViT')
 parser.add_argument('--e_type', default='vit', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
-parser.add_argument('--d_type', default='vanilla', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
+parser.add_argument('--d_type', default='decoder', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
