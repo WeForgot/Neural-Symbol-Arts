@@ -48,7 +48,13 @@ def make_cvt():
     return enc
 
 def make_nystrom(image_size, patch_size, dim, depth, heads):
-    enc = EfficientViT(image_size = 576, patch_size = patch_size, num_classes = 1, dim = dim, transformer = Nystromformer(dim = dim, depth = depth, heads = heads))
+    raise NotImplementedError('There are issues with this right now. Come back later :3c')
+    enc = EfficientViT(image_size = 576, patch_size = patch_size, num_classes = 1, dim = dim,
+                       transformer = Nystromformer(
+                           dim = dim,
+                           depth = depth,
+                           heads = heads,
+                           num_landmarks = 128))
     enc.mlp_head = nn.Identity()
     return enc
 
@@ -68,7 +74,7 @@ possible_decoders = ['decoder', 'routing']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 576, patch_size = 32,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = True, emb_drop = 0.1):
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = True, emb_drop = 0.1, thicc_ff=False):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
         assert d_type in possible_decoders, 'Please select a decoder from {}'.format(possible_decoders)
@@ -98,9 +104,25 @@ class EndToEndModel(nn.Module):
 
         self.norm = nn.LayerNorm(dim)
 
-        self.to_classes = nn.Linear(dim, layer_count)
-        self.to_colors = nn.Linear(dim, 4)
-        self.to_positions = nn.Linear(dim, 8)
+        self.to_classes = nn.Linear(dim, layer_count) if not thicc_ff else nn.Sequential(
+            FeedForward(dim=dim, dim_out=dim, glu=True),
+            nn.InstanceNorm1d(dim),
+            nn.Dropout(p=0.1),
+            nn.Linear(in_features=dim, out_features=layer_count)
+        )
+
+        self.to_colors = nn.Linear(dim, 4) if not thicc_ff else nn.Sequential(
+            FeedForward(dim=dim, dim_out=dim, glu=True),
+            nn.InstanceNorm1d(dim),
+            nn.Dropout(p=0.1),
+            nn.Linear(in_features=dim, out_features=4)
+        )
+        self.to_positions = nn.Linear(dim, 8) if not thicc_ff else nn.Sequential(
+            FeedForward(dim=dim, dim_out=dim, glu=True),
+            nn.InstanceNorm1d(dim),
+            nn.Dropout(p=0.1),
+            nn.Linear(in_features=dim, out_features=8)
+        )
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         context = self.encoder(x)

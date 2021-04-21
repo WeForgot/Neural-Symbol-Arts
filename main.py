@@ -28,6 +28,7 @@ def main(args):
     use_scaled_loss = args.scaled_loss
     valid_split = args.valid_split
     eval_every = args.eval_every
+    thicc_ff = args.thicc_ff
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
@@ -57,7 +58,8 @@ def main(args):
                           d_heads = args.d_heads,
                           mlp_dim = args.mlp_dim,
                           num_latents = args.style_latents,
-                          emb_drop = args.emb_drop).to(device)
+                          emb_drop = args.emb_drop,
+                          thicc_ff=thicc_ff).to(device)
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
@@ -184,6 +186,7 @@ parser.add_argument('--patch_size', default=32, type=int, help='How large each p
 parser.add_argument('--style_latents', default=1, type=int, help='Number of latent layers to use for StyleViT')
 parser.add_argument('--e_type', default='vit', type=str, help='Which encoder to use. Valid values are: vanilla, nystrom, cvt, style')
 parser.add_argument('--d_type', default='decoder', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
+parser.add_argument('--thicc_ff', default=False, type=str2bool, help='Whether to use the more robust feed forward sequence on final decoder outputs')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')

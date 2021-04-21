@@ -1,6 +1,6 @@
 salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 --time=4:00:00 srun --pty /bin/bash --login
 salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 --time=8:00:00 srun --pty /bin/bash --login
 
-python main.py --epochs=10000 --patience=100 --eval_every=10 --dim=64 --mlp_dim=128 --emb_dim=8 --e_type=style --e_depth=2 --e_heads=8 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=16 --style_latents=3
-python main.py --epochs=10000 --patience=100 --eval_every=10 --dim=128 --mlp_dim=128 --emb_dim=8 --e_type=cvt --d_type=routing --d_depth=6 --d_heads=16 --patch_size=16
+python main.py --epochs=10000 --patience=100 --eval_every=10 --emb_dim=8 --dim=64 --mlp_dim=128 --emb_dim=8 --e_type=style --e_depth=2 --e_heads=8 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=16 --style_latents=3
+python main.py --epochs=10000 --patience=100 --eval_every=10 --dim=256 --mlp_dim=256 --emb_dim=8 --e_type=cvt --d_type=decoder --d_depth=6 --d_heads=16
 python main.py --epochs=10000 --patience=100 --eval_every=10 --dim=256 --mlp_dim=256 --emb_dim=8 --e_type=style --e_depth=4 --e_heads=8 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=16 --style_latents=4
