@@ -68,7 +68,7 @@ def main(args):
     valid_size = int(len(dataset) * valid_split)
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
-    train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set)
+    train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
 
     optimizer = args.optimizer
     if optimizer == 'adam':
