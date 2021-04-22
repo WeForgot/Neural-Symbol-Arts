@@ -39,6 +39,7 @@ class LayersDataset(Dataset):
             transforms.CenterCrop((288, 576)),
             transforms.RandomApply(nn.ModuleList([ColorModify()]), p=0.9),
             transforms.RandomApply(nn.ModuleList([transforms.RandomAffine(degrees=90, translate=(.2, .8), scale=(0.5, 2), shear=0.5, interpolation=transforms.InterpolationMode.BILINEAR)]), p=0.5),
+            transforms.RandomErasing(p=0.5),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
         ])
@@ -118,7 +119,7 @@ def main():
         if patience > max_patience:
             print('Out of patience. Breaking')
             break
-        print('Epoch #{}, Loss: {}, Patience: {}/{}'.format(edx, running_loss, patience, max_patience+1))
+        print('Epoch #{}, Loss: {}, Patience: {}/{}'.format(edx, running_loss, patience, max_patience))
 
     model.load_state_dict(best_model)
 
