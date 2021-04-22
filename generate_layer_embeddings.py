@@ -38,7 +38,7 @@ class LayersDataset(Dataset):
             transforms.ToTensor(),
             transforms.CenterCrop((288, 576)),
             transforms.RandomApply(nn.ModuleList([ColorModify()]), p=0.9),
-            transforms.RandomApply(nn.ModuleList([transforms.RandomAffine(degrees=90, translate=(.2, .8), scale=(0.5, 2), shear=0.5)]), p=0.5),
+            transforms.RandomApply(nn.ModuleList([transforms.RandomAffine(degrees=90, translate=(.2, .8), scale=(0.5, 2), shear=0.5, interpolation=transforms.InterpolationMode.LANCZOS)]), p=0.5),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
         ])
