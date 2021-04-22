@@ -62,7 +62,6 @@ class LayersDataset(Dataset):
             feature = self.transform(feature)
         else:
             feature = self.no_transform(feature)
-        imsave('temp_{}.png'.format(idx), feature.permute(1, 2, 0).numpy())
         return feature, label
 
 
