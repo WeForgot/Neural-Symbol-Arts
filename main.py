@@ -53,8 +53,8 @@ def main(args):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    if os.path.exists('meta.json') and os.path.exists('model.pt'):
-        with open('meta.json', 'r') as f:
+    if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)):
+        with open('{}.json'.format(name), 'r') as f:
             metadata = json.load(f)
         model = EndToEndModel(metadata['e_type'], metadata['d_type'], metadata['vocab_len'],
                             image_size = metadata['image_size'],
@@ -69,10 +69,12 @@ def main(args):
                             num_latents = metadata['num_latents'],
                             emb_drop = metadata['emb_drop'],
                             thicc_ff=metadata['thicc_ff']).to(device)
-        model.load_state_dict(torch.load('model.pt'))
+        model.load_state_dict(torch.load('{}.pt'.format(name)))
         epoch = metadata['epoch']
         
     else:
+        if name == '':
+            name = 'model'
         model = EndToEndModel(args.e_type, args.d_type, len(vocab),
                             image_size = 576,
                             patch_size = args.patch_size,
@@ -86,7 +88,7 @@ def main(args):
                             num_latents = args.style_latents,
                             emb_drop = args.emb_drop,
                             thicc_ff=thicc_ff).to(device)
-        torch.save(model.state_dict(), 'model.pt')
+        torch.save(model.state_dict(), '{}.pt'.format(name))
         metadata = {
             'epoch': 0,
             'e_type': args.e_type,
@@ -106,7 +108,7 @@ def main(args):
             'thicc_ff': args.thicc_ff
         }
         epoch = 0
-        with open('meta.json', 'w') as f:
+        with open('{}.json'.format(name), 'w') as f:
             json.dump(metadata, f)
 
     print(model)
@@ -131,10 +133,10 @@ def main(args):
     else:
         model_opt = optim.SGD(model.parameters(), lr=1e-5)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
-    if os.path.exists('optim.pt'):
-        model_opt.load_state_dict(torch.load('optim.pt'))
+    if os.path.exists('{}_optim.pt'.format(name)):
+        model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
-        torch.save(model_opt.state_dict(), 'optim.pt')
+        torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
     
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
@@ -217,10 +219,10 @@ def main(args):
 
 
         # Saving after epoch
-        torch.save(model.state_dict(), 'model.pt')
-        torch.save(model_opt.state_dict(), 'optim.pt')
+        torch.save(model.state_dict(), '{}.pt'.format(name))
+        torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
         metadata['epoch'] += 1
-        with open('meta.json', 'w') as f:
+        with open('{}.json'.format(name), 'w') as f:
             json.dump(metadata, f)
         
         # Checking if it is a new PB
@@ -233,7 +235,6 @@ def main(args):
         
         # Evaluate model on test file if it is time
         if eval_every > 0 and edx % eval_every == 0:
-            torch.save(best_model, 'model.pt')
             model.eval()
             feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
