@@ -1,10 +1,11 @@
 import glob
 import os
 import pickle
+import random
 
 import numpy as np
 from PIL import Image
-from skimage.io import imread
+from skimage.io import imread, imsave
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +16,15 @@ from torchvision import models
 
 from model.utils import Vocabulary, get_parameter_count
 
+class ColorModify(nn.Module):
+    def __init__(self):
+        super().__init__()
+    def __call__(self, sample):
+        r,g,b = random.random(), random.random(), random.random()
+        sample[0,:,:] *= r
+        sample[1,:,:] *= g
+        sample[2,:,:] *= b
+        return sample
 class LayersDataset(Dataset):
     def __init__(self, vocab, base_path):
         self.vocab = vocab
@@ -27,12 +37,10 @@ class LayersDataset(Dataset):
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.CenterCrop((288, 576)),
-            transforms.RandomApply(nn.ModuleList([transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.5)]), p=0.5),
-            transforms.RandomApply(nn.ModuleList([transforms.RandomAffine(degrees=90, translate=(0, 1), scale=(0.5, 2), shear=0.5)]), p=0.5),
+            transforms.RandomApply(nn.ModuleList([ColorModify()]), p=0.9),
+            transforms.RandomApply(nn.ModuleList([transforms.RandomAffine(degrees=90, translate=(.2, .8), scale=(0.5, 2), shear=0.5)]), p=0.5),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
         ])
         self.no_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -54,6 +62,7 @@ class LayersDataset(Dataset):
             feature = self.transform(feature)
         else:
             feature = self.no_transform(feature)
+        imsave('temp_{}.png'.format(idx), feature.permute(1, 2, 0).numpy())
         return feature, label
 
 
