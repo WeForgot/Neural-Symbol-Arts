@@ -152,9 +152,8 @@ test*.saml
 test.saml
 vocab.pkl
 data.pkl
-train_metrics.csv
-valid_metrics.csv
 *.json
 checkpoints/
 data/Unprocessed/
 cross_valid.bat
+*.csv

@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import pandas as pd
 
 from model.model import EndToEndModel
 from model.datasets import SADataset
@@ -33,6 +34,7 @@ def main(args):
     eval_every = args.eval_every
     thicc_ff = args.thicc_ff
     name = args.name
+    accumulate_gradient = args.accumulate_gradient
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
@@ -43,10 +45,10 @@ def main(args):
 
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        print('CUDA available', flush=True)
+        print('CUDA available')
     else:
         device = torch.device('cpu')
-        print('CUDA not available', flush=True)
+        print('CUDA not available')
     with open('vocab.pkl', 'rb') as f:
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
@@ -109,7 +111,7 @@ def main(args):
 
     print(model)
     trainable, untrainable = get_parameter_count(model)
-    print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable), flush=True)
+    print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
     
     dataset = SADataset(data)
     valid_size = int(len(dataset) * valid_split)
@@ -123,8 +125,11 @@ def main(args):
         model_opt = optim.Adam(model.parameters(), lr=1e-3)
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
+    elif optimizer == 'asgd':
+        model_opt = optim.ASGD(model.parameters(), lr=1e-3)
+        #model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-5, momentum=0.1, weight_decay=1e-5)
+        model_opt = optim.SGD(model.parameters(), lr=1e-5)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
     if os.path.exists('optim.pt'):
         model_opt.load_state_dict(torch.load('optim.pt'))
@@ -136,110 +141,119 @@ def main(args):
     best_loss = None
     best_model = None
     cur_patience = 0
+    train_loss_array = []
+    valid_loss_array = []
+    print('Training start. Starting at epoch {}'.format(epoch))
+    for edx in range(epoch, max_epochs):
+        model.train()
+        total_losses = 0
+        blended_losses = 0
+        layer_losses = 0
+        color_losses = 0
+        position_losses = 0
+        for bdx, i_batch in enumerate(train_loader):
+            feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
-    with open('train_metrics.csv', 'w') as f, open('valid_metrics.csv', 'w') as v:
-        print('Training start. Starting at epoch {}'.format(epoch))
-        for edx in range(epoch, max_epochs):
-            model.train()
-            total_losses = 0
-            blended_losses = 0
-            layer_losses = 0
-            color_losses = 0
-            position_losses = 0
-            for bdx, i_batch in enumerate(train_loader):
-                feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+            model_opt.zero_grad()
+            total_loss = 0
+            batch_layer, batch_color, batch_position = 0, 0, 0
+            cur_grad = 0
+            for ldx in range(2, label.shape[1]):
+                layer_loss, color_loss, position_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
 
-                model_opt.zero_grad()
-                total_loss = 0
-                batch_layer, batch_color, batch_position = 0, 0, 0
-                for ldx in range(2, label.shape[1]):
-                    layer_loss, color_loss, position_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
-
-                    total_loss += layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
-                    total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
-                    blended_losses += total_loss.item()
-                    layer_losses += layer_loss.item()
-                    color_losses += color_loss.item()
-                    position_losses += position_loss.item()
-                    batch_layer += layer_loss.item()
-                    batch_color += color_loss.item()
-                    batch_position += position_loss.item()
-                    if isnan(total_loss.item()):
-                        print('Batch loss is NaN. Breaking')
-                        return
+                total_loss += layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
+                total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
+                blended_losses += total_loss.item()
+                layer_losses += layer_loss.item()
+                color_losses += color_loss.item()
+                position_losses += position_loss.item()
+                batch_layer += layer_loss.item()
+                batch_color += color_loss.item()
+                batch_position += position_loss.item()
+                if isnan(total_loss.item()):
+                    print('Batch loss is NaN. Breaking')
+                    return
+                cur_grad = (cur_grad + 1) % accumulate_gradient
+                if cur_grad == 0:
+                    total_loss.backward()
+                    model_opt.step()
+                    if model_scd is not None:
+                        model_scd.step()
+                    total_loss = 0
+            if cur_grad != 0:
                 total_loss.backward()
-
                 model_opt.step()
                 if model_scd is not None:
                     model_scd.step()
-                if batch_metrics:
-                    print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, total_loss.item(), batch_layer, batch_color, batch_position))
-            if isnan(total_losses):
-                print('Loss is NaN. Returning', flush = True)
-                return
-            f.write('{},{},{},{},{},{}\n'.format(edx, total_losses, layer_losses, color_losses, position_losses, blended_losses))
-            f.flush()
-            print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses), flush=True)
-            
-            # Prep model for validation
+
+            if batch_metrics:
+                print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_layer+batch_color+batch_position, batch_layer, batch_color, batch_position))
+        if isnan(total_losses):
+            print('Loss is NaN. Returning')
+            return
+        train_loss_array.append([edx, total_losses, layer_losses, color_losses, position_losses])
+        pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['epoch','total','layer','color','position'], index=False)
+        print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses))
+        
+        # Prep model for validation
+        model.eval()
+
+        valid_emb_loss = 0
+        valid_color_loss = 0
+        valid_position_loss = 0
+        for bdx, i_batch in enumerate(valid_loader):
+            feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+            for ldx in range(2, label.shape[1]):
+                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                valid_emb_loss += emb_loss.item()
+                valid_color_loss += color_loss.item()
+                valid_position_loss += pos_loss.item()
+
+        total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
+        print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
+        valid_loss_array.append([edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss])
+        pd.DataFrame(np.asarray(valid_loss_array)).to_csv('valid_loss.csv', header=['epoch','total','layer','color','position'], index=False)
+        print('------------------------------------------------------------------------------------------------')
+
+
+        # Saving after epoch
+        torch.save(model.state_dict(), 'model.pt')
+        torch.save(model_opt.state_dict(), 'optim.pt')
+        metadata['epoch'] += 1
+        with open('meta.json', 'w') as f:
+            json.dump(metadata, f)
+        
+        # Checking if it is a new PB
+        if best_loss is None or total_loss < best_loss:
+            best_loss = total_loss
+            best_model = model.state_dict()
+            cur_patience = 0
+        else:
+            cur_patience += 1
+        
+        # Evaluate model on test file if it is time
+        if eval_every > 0 and edx % eval_every == 0:
+            torch.save(best_model, 'model.pt')
             model.eval()
-
-            valid_emb_loss = 0
-            valid_color_loss = 0
-            valid_position_loss = 0
-            for bdx, i_batch in enumerate(valid_loader):
-                feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                for ldx in range(2, label.shape[1]):
-                    emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
-                    valid_emb_loss += emb_loss.item()
-                    valid_color_loss += color_loss.item()
-                    valid_position_loss += pos_loss.item()
-
-            total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
-            print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss), flush=True)
-            v.write('{},{},{},{},{}\n'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
-            v.flush()
-            print('------------------------------------------------------------------------------------------------')
-
-
-            # Saving after epoch
-            torch.save(model.state_dict(), 'model.pt')
-            torch.save(model_opt.state_dict(), 'optim.pt')
-            metadata['epoch'] += 1
-            with open('meta.json', 'w') as f:
-                json.dump(metadata, f)
-            
-            # Checking if it is a new PB
-            if best_loss is None or total_loss < best_loss:
-                best_loss = total_loss
-                best_model = model.state_dict()
-                cur_patience = 0
-            else:
-                cur_patience += 1
-            
-            # Evaluate model on test file if it is time
-            if eval_every > 0 and edx % eval_every == 0:
-                torch.save(best_model, 'model.pt')
-                model.eval()
-                feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-                feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
-                generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
-                dest_name = 'test_{}'.format(edx)
-                np.save('test.npy', generated)
-                convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
-            
-            # Break if the progress has gone stale
-            if cur_patience > max_patience:
-                print('Out of patience. Breaking', flush=True)
-                break
+            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+            feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
+            dest_name = 'test_{}'.format(edx)
+            np.save('test.npy', generated)
+            convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
+        
+        # Break if the progress has gone stale
+        if cur_patience > max_patience:
+            print('Out of patience. Breaking')
+            break
     model.load_state_dict(best_model)
     feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)
     convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
-    print(generated, flush=True)
-    print(generated.shape, flush=True)
+    print(generated)
+    print(generated.shape)
 
 parser = ArgumentParser()
 parser.add_argument('--epochs', default=100, type=int, help='Maximum number of epochs to train')
@@ -265,6 +279,7 @@ parser.add_argument('--e_type', default='vit', type=str, help='Which encoder to 
 parser.add_argument('--d_type', default='decoder', type=str, help='Which decoder to use. Valid values are: vanilla, routing')
 parser.add_argument('--thicc_ff', default=False, type=str2bool, help='Whether to use the more robust feed forward sequence on final decoder outputs')
 parser.add_argument('--name', default='', type=str, help='Name of checkpoint. If it already exists then we load it. You need to manually delete a checkpoint if you want to write over it')
+parser.add_argument('--accumulate_gradient', default=8, type=int, help='How steps during one data point we should accumulate gradient before backpropgating and steping through')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
