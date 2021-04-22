@@ -110,7 +110,7 @@ class LayersDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         img_name = self.im_paths[idx]
-        sample = io.imread(img_name)
+        sample = io.imread(img_name, plugin='pil')
         if self.transform:
             sample = self.transform(sample)
         return {'idx': idx, 'path': img_name, 'image': sample}

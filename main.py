@@ -35,6 +35,7 @@ def main(args):
     thicc_ff = args.thicc_ff
     name = args.name
     accumulate_gradient = args.accumulate_gradient
+    unfreeze_embs_at = args.emb_cold_start
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
@@ -75,8 +76,12 @@ def main(args):
     else:
         if name == '':
             name = 'model'
+        embs = None
+        if args.load_embeddings != '':
+            embs = torch.load(args.load_embeddings)
         model = EndToEndModel(args.e_type, args.d_type, len(vocab),
                             image_size = 576,
+                            pretrain_embeddings=embs,
                             patch_size = args.patch_size,
                             dim = args.dim,
                             emb_dim = args.emb_dim,
@@ -147,6 +152,8 @@ def main(args):
     valid_loss_array = []
     print('Training start. Starting at epoch {}'.format(epoch))
     for edx in range(epoch, max_epochs):
+        if edx == unfreeze_embs_at:
+            model.freeze_embeddings(False)
         model.train()
         total_losses = 0
         blended_losses = 0
@@ -283,6 +290,8 @@ parser.add_argument('--d_type', default='decoder', type=str, help='Which decoder
 parser.add_argument('--thicc_ff', default=False, type=str2bool, help='Whether to use the more robust feed forward sequence on final decoder outputs')
 parser.add_argument('--name', default='', type=str, help='Name of checkpoint. If it already exists then we load it. You need to manually delete a checkpoint if you want to write over it')
 parser.add_argument('--accumulate_gradient', default=8, type=int, help='How steps during one data point we should accumulate gradient before backpropgating and steping through')
+parser.add_argument('--load_embeddings', default='', type=str, help='If you have an embeddings file you can load it using this')
+parser.add_argument('--emb_cold_start', default=10, type=int, help='Only applicable if you are using load_embeddings. Unfreezes embeddings at specified epoch')
 
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')

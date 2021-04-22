@@ -166,6 +166,18 @@ class Vocabulary(object):
             self.layer_to_idx[idx] = cur_len
             self.idx_to_layer[cur_len] = idx
     
+    def remove_item(self, idx):
+        if isinstance(idx, int):
+            delstr = self.idx_to_layer[idx]
+            del self.idx_to_layer[idx]
+            del self.layer_to_idx[delstr]
+        elif isinstance(idx, str):
+            delint = self.layer_to_idx[idx]
+            del self.idx_to_layer[delint]
+            del self.layer_to_idx[idx]
+        else:
+            raise ValueError('Vocabulary indices can only be strings or integers')
+    
     def __len__(self):
         return len(self.layer_to_idx)
     
@@ -182,6 +194,7 @@ class Vocabulary(object):
             return self.idx_to_layer[idx]
         else:
             raise ValueError('Vocabulary indices can only be strings or integers')
+    
 
 
 def str2bool(v):

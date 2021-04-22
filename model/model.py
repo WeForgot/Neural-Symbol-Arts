@@ -62,8 +62,8 @@ def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents):
     enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents)
     return enc
 
-def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_emb_dim):
-    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_emb_dim), dim_in = dim, dim_out = dim)
+def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
+    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
     return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True)
@@ -74,7 +74,7 @@ possible_decoders = ['decoder', 'routing']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 576, patch_size = 32,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = True, rotary_pos_emb = True, emb_drop = 0.1, thicc_ff=False):
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = True, rotary_pos_emb = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
         assert d_type in possible_decoders, 'Please select a decoder from {}'.format(possible_decoders)
@@ -98,7 +98,13 @@ class EndToEndModel(nn.Module):
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
         
         # Decoder only parts
-        self.embedding_dim = nn.Embedding(layer_count, emb_dim)
+        if pretrain_embeddings is not None:
+            print('Loading pretrained embeddings')
+            self.embedding_dim = nn.Embedding.from_pretrained(pretrain_embeddings, freeze=True)
+            layer_count = self.embedding_dim.num_embeddings
+            emb_dim = self.embedding_dim.embedding_dim
+        else:
+            self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = nn.Linear(emb_dim + 12, dim)
 
@@ -123,6 +129,10 @@ class EndToEndModel(nn.Module):
             nn.Dropout(p=0.1),
             nn.Linear(in_features=dim, out_features=8)
         )
+    
+    def freeze_embeddings(self, freeze=True):
+        self.embedding_dim.weight.requires_grad = not freeze
+        
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         context = self.encoder(x)
