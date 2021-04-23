@@ -80,7 +80,7 @@ def main():
     dataset = LayersDataset(vocab, os.path.join('.', 'data', 'Layers'))
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
     model = models.mobilenet_v3_small()
-    emb_size = 16
+    emb_size = 32
     # MobilenetV3-Small
     model.classifier = nn.Sequential(
         nn.Linear(in_features=576, out_features=emb_size, bias=True),
@@ -89,15 +89,14 @@ def main():
         nn.Linear(in_features=emb_size, out_features=len(vocab), bias=True)
     )
     model = model.to(device)
-    print(model)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     trainable, untrainable = get_parameter_count(model)
     print('Trainable: {}, Untrainable: {}'.format(trainable, untrainable))
     epochs = 1000000000000000
     best_loss = None
     best_model = None
     patience = 0
-    max_patience = 20
+    max_patience = 100
     for edx in range(epochs):
         running_loss = 0
         for bdx, batch in enumerate(dataloader):
