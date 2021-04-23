@@ -80,7 +80,7 @@ def main():
     dataset = LayersDataset(vocab, os.path.join('.', 'data', 'Layers'))
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
     model = models.mobilenet_v3_small()
-    emb_size = 32
+    emb_size = 64
     # MobilenetV3-Small
     model.classifier = nn.Sequential(
         nn.Linear(in_features=576, out_features=emb_size, bias=True),
