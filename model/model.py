@@ -68,8 +68,28 @@ def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb)
 def make_routing(dim, depth, heads):
     return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True)
 
+def make_conv(dim):
+    return nn.Sequential(
+        nn.Conv2d(in_channels=4, out_channels=8, kernel_size=7, bias=False),
+        nn.LeakyReLU(),
+        nn.Dropout2d(p=0.2),
+        nn.Conv2d(in_channels=8, out_channels=16, kernel_size=5, bias=False),
+        nn.LeakyReLU(),
+        nn.Dropout2d(p=0.2),
+        nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, bias=False),
+        nn.LeakyReLU(),
+        nn.Dropout2d(p=0.2),
+        nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, bias=False),
+        nn.LeakyReLU(),
+        nn.Dropout2d(p=0.2),
+        nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, bias=False),
+        nn.LeakyReLU(),
+        nn.Dropout2d(p=0.2),
+        nn.AdaptiveAvgPool2d((100,dim))
+    )
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'style']
+
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style']
 possible_decoders = ['decoder', 'routing']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 576, patch_size = 32,
@@ -86,6 +106,8 @@ class EndToEndModel(nn.Module):
             self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads)
         elif e_type == 'style':
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents)
+        elif e_type == 'conv':
+            self.encoder = make_conv(dim)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
