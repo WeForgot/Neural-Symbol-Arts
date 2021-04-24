@@ -9,6 +9,8 @@ import pickle
 import random
 import re
 
+from adabelief_pytorch import AdaBelief
+from ranger_adabelief import RangerAdaBelief
 from dotenv import load_dotenv
 import numpy as np
 from skimage import io
@@ -134,7 +136,10 @@ def main(args):
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
         model_opt = optim.ASGD(model.parameters(), lr=1e-3)
-        #model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
+    elif optimizer == 'adabelief':
+        model_opt = AdaBelief(model.parameters(), lr=5e-4, betas=(0.9,0.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True, rectify=True, print_change_log=False)
+    elif optimizer == 'ranger':
+        model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     else:
         model_opt = optim.SGD(model.parameters(), lr=1e-5)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
