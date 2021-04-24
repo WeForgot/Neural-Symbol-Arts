@@ -249,7 +249,7 @@ def main(args):
         if eval_every > 0 and edx % eval_every == 0:
             model.eval()
             #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-            feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
+            feature = io.imread('PleaseWork.png').astype(np.float32)[:,:,:3] / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
             dest_name = 'test_{}'.format(edx)
@@ -261,8 +261,7 @@ def main(args):
             print('Out of patience. Breaking')
             break
     model.load_state_dict(best_model)
-    #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-    feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
+    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)

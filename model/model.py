@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
 
 from vit_pytorch.vit import ViT
 from vit_pytorch.efficient import ViT as EfficientViT
@@ -88,8 +89,16 @@ def make_conv(dim):
         nn.AdaptiveAvgPool2d((100,dim))
     )
 
+def make_mobilenet(dim):
+    model = models.mobilenet_v3_small()
+    # MobilenetV3-Small
+    model.classifier = nn.Sequential(
+        nn.Linear(in_features=576, out_features=dim, bias=True),
+    )
+    return model
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style']
+
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet']
 possible_decoders = ['decoder', 'routing']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 576, patch_size = 32,
@@ -108,6 +117,8 @@ class EndToEndModel(nn.Module):
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents)
         elif e_type == 'conv':
             self.encoder = make_conv(dim)
+        elif e_type == 'mobilenet':
+            self.encoder = make_mobilenet(dim)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
