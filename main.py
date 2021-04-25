@@ -159,6 +159,8 @@ def main(args):
     for edx in range(epoch, max_epochs):
         if edx == unfreeze_embs_at:
             model.freeze_embeddings(False)
+            if args.e_type == 'conv':
+                model.freeze_encoder(False)
         model.train()
         total_losses = 0
         blended_losses = 0

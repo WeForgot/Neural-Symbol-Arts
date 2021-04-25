@@ -13,6 +13,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision import models
+from adabelief_pytorch import AdaBelief
 
 from model.utils import Vocabulary, get_parameter_count
 
@@ -80,7 +81,7 @@ def main():
     dataset = LayersDataset(vocab, os.path.join('.', 'data', 'Layers'))
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
     model = models.mobilenet_v3_small()
-    emb_size = 64
+    emb_size = 8
     # MobilenetV3-Small
     model.classifier = nn.Sequential(
         nn.Linear(in_features=576, out_features=emb_size, bias=True),
@@ -89,7 +90,8 @@ def main():
         nn.Linear(in_features=emb_size, out_features=len(vocab), bias=True)
     )
     model = model.to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = AdaBelief(model.parameters(), lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=1e-2, weight_decouple=True, rectify=False, fixed_decay=False, amsgrad=False, print_change_log=False)
     trainable, untrainable = get_parameter_count(model)
     print('Trainable: {}, Untrainable: {}'.format(trainable, untrainable))
     epochs = 1000000000000000

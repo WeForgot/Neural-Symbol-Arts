@@ -63,6 +63,10 @@ def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents):
     enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents)
     return enc
 
+def make_autoencoder(ae_path):
+    enc = torch.load(ae_path)
+    return enc
+
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
@@ -70,6 +74,11 @@ def make_routing(dim, depth, heads):
     return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True)
 
 def make_conv(dim):
+    enc = torch.load('best_encoder_{}.pt'.format(dim))
+    for param in enc.parameters():
+        param.requires_grad = False
+    return enc
+    '''
     return nn.Sequential(
         nn.Conv2d(in_channels=4, out_channels=8, kernel_size=7, bias=False),
         nn.LeakyReLU(),
@@ -88,6 +97,7 @@ def make_conv(dim):
         nn.Dropout2d(p=0.2),
         nn.AdaptiveAvgPool2d((100,dim))
     )
+    '''
 
 def make_mobilenet(dim):
     model = models.mobilenet_v3_small()
@@ -165,6 +175,12 @@ class EndToEndModel(nn.Module):
     
     def freeze_embeddings(self, freeze=True):
         self.embedding_dim.weight.requires_grad = not freeze
+    
+    def freeze_encoder(self, freeze=True):
+        for param in self.encoder[-1].parameters():
+            param.requires_grad = freeze
+        #for param in self.encoder.parameters():
+        #    param.requires_grad = freeze
         
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
