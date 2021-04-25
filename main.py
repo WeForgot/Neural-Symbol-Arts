@@ -56,7 +56,7 @@ def main(args):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-    if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)):
+    if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)) and args.load_checkpoint:
         with open('{}.json'.format(name), 'r') as f:
             metadata = json.load(f)
         model = EndToEndModel(metadata['e_type'], metadata['d_type'], metadata['vocab_len'],
@@ -175,7 +175,7 @@ def main(args):
             for ldx in range(2, label.shape[1]):
                 layer_loss, color_loss, position_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
 
-                total_loss += layer_alpha * layer_loss + color_alpha *  color_loss + position_alpha * position_loss + (aux_loss if aux_loss is not None else 0)
+                total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
                 layer_losses += layer_loss.item()
@@ -249,7 +249,7 @@ def main(args):
         if eval_every > 0 and edx % eval_every == 0:
             model.eval()
             #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-            feature = io.imread('PleaseWork.png').astype(np.float32)[:,:,:3] / 255.
+            feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
             dest_name = 'test_{}'.format(edx)
@@ -261,7 +261,7 @@ def main(args):
             print('Out of patience. Breaking')
             break
     model.load_state_dict(best_model)
-    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+    feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
     feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
     generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
     np.save('test.npy', generated)
@@ -296,7 +296,7 @@ parser.add_argument('--name', default='', type=str, help='Name of checkpoint. If
 parser.add_argument('--accumulate_gradient', default=8, type=int, help='How steps during one data point we should accumulate gradient before backpropgating and steping through')
 parser.add_argument('--load_embeddings', default='', type=str, help='If you have an embeddings file you can load it using this')
 parser.add_argument('--emb_cold_start', default=-1, type=int, help='Only applicable if you are using load_embeddings. Unfreezes embeddings at specified epoch. Defaults to never unfreezing')
-
+parser.add_argument('--load_checkpoint', default=False, type=str2bool, help='Whether to load a pre-existing checkpoint')
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
 parser.add_argument('--position_alpha', default=1.0, type=float, help='The scaling factor for the position prediction loss')

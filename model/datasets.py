@@ -137,6 +137,6 @@ class SADataset(Dataset):
         cur_data = self.data[idx]
         rand_end = random.randint(2,len(cur_data['label']))
         #feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
-        feature, label, mask = io.imread(cur_data['feature']).astype(np.float32)[:,:,:3] / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
+        feature, label, mask = io.imread(cur_data['feature']).astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
         feature, label, mask = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32)), torch.from_numpy(label.astype(np.float32)), torch.from_numpy(mask)
         return {'feature': feature, 'label': label, 'mask': mask}
