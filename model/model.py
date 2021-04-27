@@ -40,8 +40,7 @@ def top_k(logits, thres = 0.9):
     return probs
 
 def make_vit(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
-    enc = ViT(image_size = image_size, patch_size = patch_size, num_classes = 1, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels)
-    enc.mlp_head = nn.Identity()
+    enc = ViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels)
     return enc
 
 def make_cvt():
