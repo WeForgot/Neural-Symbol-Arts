@@ -14,7 +14,6 @@ from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
-from model.custom_local_vit import LocalViT
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
