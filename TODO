@@ -2,8 +2,7 @@ salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 -
 salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 --time=8:00:00 srun --pty /bin/bash --login
 
 Small (Style/Decoder):
-python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=4 --e_type=style --e_depth=1 --e_heads=8 --style_latents=2 --d_type=decoder --d_depth=2 --d_heads=8 --patch_size=32 --valid_split=0.3 --accumulate_gradient=8 --name=small --load_embeddings=layer_embeddings_32_83.pt --emb_cold_start=25 --optimizer=adabelief
-
+python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=64 --mlp_dim=64 --e_type=style --e_depth=2 --e_heads=16 --style_latents=6 --d_type=decoder --d_depth=3 --d_heads=16 --patch_size=32 --valid_split=0.3 --accumulate_gradient=8 --name=small --load_embeddings=layer_embeddings_16_108.pt --emb_cold_start=20 --optimizer=adam
 Medium (Style/Decoder):
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=64 --mlp_dim=64 --e_type=style --e_depth=2 --e_heads=8 --style_latents=6 --d_type=decoder --d_depth=3 --d_heads=16 --patch_size=72 --valid_split=0.2 --accumulate_gradient=8 --name=medium --load_embeddings=layer_embeddings_32_83.pt --emb_cold_start=5 --optimizer=ranger
 
@@ -15,6 +14,3 @@ python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=
 
 Large (Style/Routing):
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=128 --mlp_dim=128 --emb_dim=8 --e_type=style --e_depth=3 --e_heads=8 --style_latents=4 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=32 --valid_split=0.3 --accumulate_gradient=8 --thicc_ff=True --name=large
-
-
-python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=32 --mlp_dim=32 --e_type=conv --d_type=decoder --d_depth=2 --d_heads=8 --valid_split=0.2 --accumulate_gradient=8 --name=small --load_embeddings=layer_embeddings_32_83.pt --emb_cold_start=1 --optimizer=adabelief

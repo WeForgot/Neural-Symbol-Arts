@@ -76,7 +76,6 @@ class StyleViT(nn.Module):
             y = torch.cat((torch.zeros_like(cls_tokens), y), dim=1)
             styles.append(y)
         x = self.transformer(x, styles)
-        x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
         return self.to_latent(x)
 
 if __name__ == '__main__':

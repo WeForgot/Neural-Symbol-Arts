@@ -80,8 +80,8 @@ def main():
         vocab = pickle.load(f)
     dataset = LayersDataset(vocab, os.path.join('.', 'data', 'Layers'))
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
-    model = models.mobilenet_v3_small()
-    emb_size = 8
+    model = models.mobilenet_v3_small(pretrained=True)
+    emb_size = 16
     # MobilenetV3-Small
     model.classifier = nn.Sequential(
         nn.Linear(in_features=576, out_features=emb_size, bias=True),
@@ -94,11 +94,11 @@ def main():
     optimizer = AdaBelief(model.parameters(), lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=1e-2, weight_decouple=True, rectify=False, fixed_decay=False, amsgrad=False, print_change_log=False)
     trainable, untrainable = get_parameter_count(model)
     print('Trainable: {}, Untrainable: {}'.format(trainable, untrainable))
-    epochs = 1000000000000000
+    epochs = 100000000000000000000000
     best_loss = None
     best_model = None
     patience = 0
-    max_patience = 100
+    max_patience = 50
     for edx in range(epochs):
         running_loss = 0
         for bdx, batch in enumerate(dataloader):
@@ -132,12 +132,15 @@ def main():
     model.classifier[-3] = nn.Identity().to(device)
 
     eval_dataloader = DataLoader(dataset)
+    num_samples = 10
 
-    for fdx, (feature, label) in enumerate(eval_dataloader):
-        feature = feature.to(device)
-        with torch.no_grad():
-            out = model(feature)
-        embeddings[label+3] = out[0].cpu()
+    for sdx in range(num_samples):
+        for fdx, (feature, label) in enumerate(eval_dataloader):
+            feature = feature.to(device)
+            with torch.no_grad():
+                out = model(feature)
+            embeddings[label+3] += out[0].cpu()
+    embeddings /= num_samples
     torch.save(embeddings, 'layer_embeddings_{}.pt'.format(emb_size))
 
 

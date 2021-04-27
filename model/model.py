@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 
-from vit_pytorch.vit import ViT
 from vit_pytorch.efficient import ViT as EfficientViT
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
@@ -14,6 +13,8 @@ from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
+from model.custom_vit import ViT
+from model.custom_local_vit import LocalViT
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
@@ -38,8 +39,8 @@ def top_k(logits, thres = 0.9):
     probs.scatter_(1, ind, val)
     return probs
 
-def make_vit(image_size, patch_size, dim, depth, heads, mlp_dim):
-    enc = ViT(image_size = image_size, patch_size = patch_size, num_classes = 1, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim)
+def make_vit(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
+    enc = ViT(image_size = image_size, patch_size = patch_size, num_classes = 1, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels)
     enc.mlp_head = nn.Identity()
     return enc
 
@@ -48,7 +49,7 @@ def make_cvt():
     enc.layers[-1] = nn.Identity()
     return enc
 
-def make_nystrom(image_size, patch_size, dim, depth, heads):
+def make_nystrom(image_size, patch_size, dim, depth, heads, channels):
     raise NotImplementedError('There are issues with this right now. Come back later :3c')
     enc = EfficientViT(image_size = 576, patch_size = patch_size, num_classes = 1, dim = dim,
                        transformer = Nystromformer(
@@ -59,19 +60,23 @@ def make_nystrom(image_size, patch_size, dim, depth, heads):
     enc.mlp_head = nn.Identity()
     return enc
 
-def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents):
-    enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents)
+def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents, channels):
+    enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents, channels = channels)
     return enc
+
+def make_local(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
+    return LocalViT(image_size, patch_size, dim, depth, heads, mlp_dim, channels)
 
 def make_autoencoder(ae_path):
     enc = torch.load(ae_path)
     return enc
 
-def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
-    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
+def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
+    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
-    return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True)
+    return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True)
+
 
 def make_conv(dim):
     enc = torch.load('best_encoder_{}.pt'.format(dim))
@@ -108,32 +113,34 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet']
-possible_decoders = ['decoder', 'routing']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'local']
+possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
-    def __init__(self, e_type, d_type, layer_count, image_size = 576, patch_size = 32,
+    def __init__(self, e_type, d_type, layer_count, image_size = 192, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = True, rotary_pos_emb = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None):
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, attn_talking_heads = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
         assert d_type in possible_decoders, 'Please select a decoder from {}'.format(possible_decoders)
         if e_type == 'vit':
-            self.encoder = make_vit(image_size, patch_size, dim, e_depth, e_heads, mlp_dim)
+            self.encoder = make_vit(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         elif e_type == 'cvt':
             self.encoder = make_cvt()
         elif e_type == 'nystrom':
-            self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads)
+            self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'style':
-            self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents)
+            self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents, channels)
         elif e_type == 'conv':
             self.encoder = make_conv(dim)
         elif e_type == 'mobilenet':
             self.encoder = make_mobilenet(dim)
+        elif e_type == 'local':
+            self.encoder = make_local(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
         if d_type == 'decoder':
-            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = d_heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb)
+            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = d_heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb, attn_talking_heads = attn_talking_heads)
         elif d_type == 'routing':
             self.routing = True
             self.decoder = make_routing(dim = dim, depth = d_depth, heads = d_heads)
@@ -153,24 +160,24 @@ class EndToEndModel(nn.Module):
 
         self.norm = nn.LayerNorm(dim)
 
-        self.to_classes = nn.Linear(dim, layer_count) if not thicc_ff else nn.Sequential(
+        self.to_classes = nn.Linear(dim, layer_count, bias=False) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.InstanceNorm1d(dim),
+            nn.LayerNorm(dim),
             nn.Dropout(p=0.1),
             nn.Linear(in_features=dim, out_features=layer_count)
         )
 
-        self.to_colors = nn.Linear(dim, 4) if not thicc_ff else nn.Sequential(
+        self.to_colors = nn.Linear(dim, 4, bias=False) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.InstanceNorm1d(dim),
+            nn.LayerNorm(dim),
             nn.Dropout(p=0.1),
-            nn.Linear(in_features=dim, out_features=4)
+            nn.Linear(in_features=dim, out_features=4, bias=False)
         )
-        self.to_positions = nn.Linear(dim, 8) if not thicc_ff else nn.Sequential(
+        self.to_positions = nn.Linear(dim, 8, bias=False) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.InstanceNorm1d(dim),
+            nn.LayerNorm(dim),
             nn.Dropout(p=0.1),
-            nn.Linear(in_features=dim, out_features=8)
+            nn.Linear(in_features=dim, out_features=8, bias=False)
         )
     
     def freeze_embeddings(self, freeze=True):
@@ -196,9 +203,10 @@ class EndToEndModel(nn.Module):
         y = self.projection(y)
         aux_loss = None
         if self.routing:
-            x, aux_loss = self.decoder(y, context=context, mask=feature_mask)
+            x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
+        x = F.hardswish(x)
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
         pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)

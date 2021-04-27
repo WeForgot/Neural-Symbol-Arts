@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
 import pandas as pd
 
 from model.model import EndToEndModel
@@ -44,7 +45,7 @@ def main(args):
     position_alpha = args.position_alpha
 
     target_length = 225
-    data_clamped = True
+    data_clamped = False
 
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -56,6 +57,8 @@ def main(args):
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
+    random.seed(args.seed)
+    random.shuffle(data)
     if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)) and args.load_checkpoint:
         with open('{}.json'.format(name), 'r') as f:
             metadata = json.load(f)
@@ -74,6 +77,8 @@ def main(args):
                             thicc_ff=metadata['thicc_ff']).to(device)
         model.load_state_dict(torch.load('{}.pt'.format(name)))
         epoch = metadata['epoch']
+        train_loss_array = metadata['train']
+        valid_loss_array = metadata['valid']
         
     else:
         if name == '':
@@ -115,6 +120,8 @@ def main(args):
             'thicc_ff': args.thicc_ff
         }
         epoch = 0
+        train_loss_array = []
+        valid_loss_array = []
         with open('{}.json'.format(name), 'w') as f:
             json.dump(metadata, f)
 
@@ -127,11 +134,13 @@ def main(args):
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
+    resize = transforms.Resize((96,192))
 
     optimizer = args.optimizer
     model_scd = None
     if optimizer == 'adam':
         model_opt = optim.Adam(model.parameters(), lr=1e-3)
+        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=1000, T_mult=2)
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
@@ -141,8 +150,8 @@ def main(args):
     elif optimizer == 'ranger':
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-5)
-        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-3, step_size_up=500, step_size_down=500, mode='triangular')
+        model_opt = optim.SGD(model.parameters(), lr=1e-4, momentum=0.99)
+        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-4, max_lr=1e-1, step_size_up=1000, step_size_down=1000, mode='triangular')
     if os.path.exists('{}_optim.pt'.format(name)):
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
@@ -153,15 +162,17 @@ def main(args):
     best_loss = None
     best_model = None
     cur_patience = 0
-    train_loss_array = []
-    valid_loss_array = []
     print('Training start. Starting at epoch {}'.format(epoch))
     for edx in range(epoch, max_epochs):
+        # Unfreeze embeddings if it is time for that
         if edx == unfreeze_embs_at:
             model.freeze_embeddings(False)
+            # I am lazy and don't feel like adding another parameter for this so we unfreeze convolutional encoder when we unfreeze the embeddings
             if args.e_type == 'conv':
                 model.freeze_encoder(False)
+        # Prep model for training
         model.train()
+
         total_losses = 0
         blended_losses = 0
         layer_losses = 0
@@ -174,8 +185,15 @@ def main(args):
             total_loss = 0
             batch_layer, batch_color, batch_position = 0, 0, 0
             cur_grad = 0
-            for ldx in range(2, label.shape[1]):
-                layer_loss, color_loss, position_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+
+            # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
+            ldxs = list(range(2, label.shape[1]))
+            random.shuffle(ldxs)
+            # Train the model in a generative manner
+            for ldx in ldxs:
+                pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
+                pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
+                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
 
                 total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
@@ -189,12 +207,13 @@ def main(args):
                 if isnan(total_loss.item()):
                     print('Batch loss is NaN. Breaking')
                     return
+                # Accumulate gradients every
                 cur_grad = (cur_grad + 1) % accumulate_gradient
                 if cur_grad == 0:
                     total_loss.backward()
                     model_opt.step()
                     if model_scd is not None:
-                        model_scd.step()
+                        model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                     total_loss = 0
             if cur_grad != 0:
                 total_loss.backward()
@@ -207,8 +226,8 @@ def main(args):
         if isnan(total_losses):
             print('Loss is NaN. Returning')
             return
-        train_loss_array.append([edx, total_losses, layer_losses, color_losses, position_losses])
-        pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['epoch','total','layer','color','position'], index=False)
+        train_loss_array.append([edx, total_losses, total_losses/train_size, layer_losses, layer_losses/train_size, color_losses, color_losses/train_size, position_losses, position_losses/train_size])
+        pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
         print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses))
         
         # Prep model for validation
@@ -220,15 +239,15 @@ def main(args):
         for bdx, i_batch in enumerate(valid_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
-                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
 
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
         print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
-        valid_loss_array.append([edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss])
-        pd.DataFrame(np.asarray(valid_loss_array)).to_csv('valid_loss.csv', header=['epoch','total','layer','color','position'], index=False)
+        valid_loss_array.append([edx, total_loss, total_loss/valid_size, valid_emb_loss, valid_emb_loss/valid_size, valid_color_loss, valid_color_loss/valid_size, valid_position_loss, valid_position_loss/valid_size])
+        pd.DataFrame(np.asarray(valid_loss_array)).to_csv('valid_loss.csv', header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
         print('------------------------------------------------------------------------------------------------')
 
 
@@ -236,6 +255,8 @@ def main(args):
         torch.save(model.state_dict(), '{}.pt'.format(name))
         torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
         metadata['epoch'] += 1
+        metadata['train'] = train_loss_array
+        metadata['valid'] = valid_loss_array
         with open('{}.json'.format(name), 'w') as f:
             json.dump(metadata, f)
         
@@ -250,9 +271,10 @@ def main(args):
         # Evaluate model on test file if it is time
         if eval_every > 0 and edx % eval_every == 0:
             model.eval()
-            #feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-            feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
+            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+            #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+            feature = resize(feature)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
             dest_name = 'test_{}'.format(edx)
             np.save('test.npy', generated)
@@ -262,14 +284,9 @@ def main(args):
         if cur_patience > max_patience:
             print('Out of patience. Breaking')
             break
-    model.load_state_dict(best_model)
-    feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
-    feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
-    generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
-    np.save('test.npy', generated)
-    convert_numpy_to_saml('test.npy', vocab, values_clamped=data_clamped)
-    print(generated)
-    print(generated.shape)
+    
+    # Save over current model with best model. Could do optimizer too but that just doesn't make sense to me?
+    torch.save(best_model, '{}.pt'.format(name))
 
 parser = ArgumentParser()
 parser.add_argument('--epochs', default=100, type=int, help='Maximum number of epochs to train')
@@ -277,6 +294,7 @@ parser.add_argument('--patience', default=100, type=int, help='Maximum patience 
 parser.add_argument('--optimizer', default='adam', type=str, help='Which optimizer to use, defaults to Adam')
 parser.add_argument('--batch_size', default=4, type=int, help='What batch size to use')
 parser.add_argument('--batch_metrics', default=False, type=str2bool, help='Whether or not to print metrics per batch')
+parser.add_argument('--seed', default=420, type=int, help='The random seed to use when initially shuffling the data')
 parser.add_argument('--activations', default=False, type=str2bool, help='Whether to use sigmoid and tanh activations for color and position respectively. Otherwise defaults to linear')
 parser.add_argument('--valid_split', default=0.3, type=float, help='What percent of the dataset should be used for validation')
 parser.add_argument('--scaled_loss', default=False, type=str2bool, help='Whether to scale loss by the L1 norm')

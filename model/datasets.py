@@ -5,6 +5,7 @@ import random
 import numpy as np
 from skimage import io, transform
 import torch
+from torchvision import transforms as transforms
 from torch.utils.data import Dataset
 
 class Rescale(object):
@@ -121,12 +122,7 @@ class SADataset(Dataset):
         self.rand_max = 227
         #self.cur_rand = random.randint(2, self.rand_max-1)
         self.cur_rand = self.rand_max
-        self.idx_list = list(range(2, self.rand_max))
-    
-    def new_rand(self, ceiling=-1):
-        if len(self.idx_list) == 0:
-            self.idx_list = list(range(2, self.rand_max))
-        self.cur_rand = self.idx_list.pop(random.randrange(len(self.idx_list)))
+        self.resize = transforms.Resize((96,192))
     
     def __len__(self):
         return len(self.data)
@@ -136,7 +132,8 @@ class SADataset(Dataset):
             idx = idx.tolist()
         cur_data = self.data[idx]
         rand_end = random.randint(2,len(cur_data['label']))
-        #feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
-        feature, label, mask = io.imread(cur_data['feature']).astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
+        feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32) / 255., cur_data['label'], cur_data['mask']
+        #feature, label, mask = io.imread(cur_data['feature']).astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
         feature, label, mask = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32)), torch.from_numpy(label.astype(np.float32)), torch.from_numpy(mask)
+        feature = self.resize(feature)
         return {'feature': feature, 'label': label, 'mask': mask}
