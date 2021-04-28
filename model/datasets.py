@@ -122,7 +122,8 @@ class SADataset(Dataset):
         self.rand_max = 227
         #self.cur_rand = random.randint(2, self.rand_max-1)
         self.cur_rand = self.rand_max
-        self.resize = transforms.Resize((96,192))
+        #self.resize = transforms.Resize((96,192))
+        self.resize = transforms.Resize((192,192))
     
     def __len__(self):
         return len(self.data)

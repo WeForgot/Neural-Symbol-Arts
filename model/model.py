@@ -8,12 +8,13 @@ import torchvision.models as models
 from vit_pytorch.efficient import ViT as EfficientViT
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
-from vit_pytorch.cvt import CvT
+from model.custom_cvt import CvT
 from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
+from model.custom_perciever import Perceiver
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
@@ -42,9 +43,10 @@ def make_vit(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
     enc = ViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels)
     return enc
 
-def make_cvt():
+def make_cvt(dim):
     enc = CvT(num_classes=1)
     enc.layers[-1] = nn.Identity()
+    enc.layers[-2] = nn.Identity()
     return enc
 
 def make_nystrom(image_size, patch_size, dim, depth, heads, channels):
@@ -62,8 +64,8 @@ def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents, 
     enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents, channels = channels)
     return enc
 
-def make_local(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
-    return LocalViT(image_size, patch_size, dim, depth, heads, mlp_dim, channels)
+def make_perceiver(depth, heads):
+    return Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10., depth=depth, latent_heads=heads)
 
 def make_autoencoder(ae_path):
     enc = torch.load(ae_path)
@@ -111,7 +113,7 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'local']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'perceiver']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 192, patch_size = 32, channels = 3,
@@ -124,17 +126,17 @@ class EndToEndModel(nn.Module):
         if e_type == 'vit':
             self.encoder = make_vit(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         elif e_type == 'cvt':
-            self.encoder = make_cvt()
+            self.encoder = make_cvt(dim)
         elif e_type == 'nystrom':
             self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'style':
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents, channels)
+        elif e_type == 'perceiver':
+            self.encoder = make_perceiver(e_depth, e_heads)
         elif e_type == 'conv':
             self.encoder = make_conv(dim)
         elif e_type == 'mobilenet':
             self.encoder = make_mobilenet(dim)
-        elif e_type == 'local':
-            self.encoder = make_local(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
@@ -156,6 +158,7 @@ class EndToEndModel(nn.Module):
             self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = nn.Linear(emb_dim + 12, dim)
+        self.dec_act = nn.Hardswish()
 
         self.to_classes = nn.Sequential(nn.InstanceNorm1d(dim), nn.Linear(dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
@@ -179,6 +182,10 @@ class EndToEndModel(nn.Module):
         if use_activations:
             self.to_colors.add_module('activation', nn.Sigmoid())
             self.to_positions.add_module('activation', nn.Tanh())
+        
+        self.class_loss = nn.CrossEntropyLoss()
+        self.color_loss = nn.MSELoss()
+        self.position_loss = nn.MSELoss()
     
     def freeze_embeddings(self, freeze=True):
         self.embedding_dim.weight.requires_grad = not freeze
@@ -195,7 +202,6 @@ class EndToEndModel(nn.Module):
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
-
         feature_emb, feature_met = torch.split(features, [1, features.shape[-1] - 1], dim=-1)
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
@@ -206,7 +212,7 @@ class EndToEndModel(nn.Module):
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
-        x = F.hardswish(x)
+        x = self.dec_act(x)
         pred_embs = self.to_classes(x)
         pred_cols = self.to_colors(x)
         pred_posi = self.to_positions(x)

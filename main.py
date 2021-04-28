@@ -157,8 +157,8 @@ def main(args):
     elif optimizer == 'ranger':
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-4, momentum=0.99)
-        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-4, max_lr=1e-1, step_size_up=1000, step_size_down=1000, mode='triangular')
+        model_opt = optim.SGD(model.parameters(), lr=1e-1)
+        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=5, T_mult=2)
     if os.path.exists('{}_optim.pt'.format(name)):
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
@@ -283,7 +283,7 @@ def main(args):
         # Evaluate model on test file if it is time
         if eval_every > 0 and edx % eval_every == 0:
             model.eval()
-            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+            feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
             #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
