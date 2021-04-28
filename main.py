@@ -243,7 +243,7 @@ def main(args):
         train_loss_array.append([edx, total_losses, total_losses/train_size, layer_losses, layer_losses/train_size, color_losses, color_losses/train_size, position_losses, position_losses/train_size])
         pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
         print('TRAINING Epoch #{}\n\tTime spent: {}\n\tTotal Loss: {}\n\tEmbedding Loss: {}\n\tColor Loss: {}\n\tPosition Loss: {}'.format(edx, time.time()-startTime, total_losses, layer_losses, color_losses, position_losses))
-        
+
         # Prep model for validation
         model.eval()
 
