@@ -50,11 +50,6 @@ def main(args):
     target_length = 225
     data_clamped = True
 
-    amp_context = torch.cuda.amp.autocast
-    grad_scaler = torch.cuda.amp.GradScaler(enabled = use_amp)
-    if use_amp:
-        print('Using mixed precision training')
-
 
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -202,8 +197,8 @@ def main(args):
             for ldx in ldxs:
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
-                with amp_context(enabled=use_amp):
-                    layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
+
+                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
 
                 total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
@@ -220,17 +215,16 @@ def main(args):
                 # Accumulate gradients every
                 cur_grad = (cur_grad + 1) % accumulate_gradient
                 if cur_grad == 0:
-                    grad_scaler.scale(total_loss).backward()
-                    grad_scaler.step(model_opt)
-                    grad_scaler.update()
-                    model_opt.zero_grad()
+                    total_loss.backward()
+                    model_opt.step()
                     if model_scd is not None:
                         model_scd.step(epoch=(epoch + bdx/len(train_loader)))
+                    model_opt.zero_grad()
                     total_loss = 0
+                    break
             if cur_grad != 0:
-                grad_scaler.scale(total_loss).backward()
-                grad_scaler.step(model_opt)
-                grad_scaler.update()
+                total_loss.backward()
+                model_opt.step()
                 if model_scd is not None:
                     model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                 model_opt.zero_grad()
@@ -253,8 +247,7 @@ def main(args):
         for bdx, i_batch in enumerate(valid_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
-                with amp_context(enabled=use_amp):
-                    emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
+                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
@@ -290,8 +283,7 @@ def main(args):
             #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
-            with amp_context(enabled=use_amp):
-                generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
+            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
             dest_name = 'test_{}'.format(edx)
             np.save('test.npy', generated)
             convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
