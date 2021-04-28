@@ -41,7 +41,7 @@ def main(args):
     name = args.name
     accumulate_gradient = args.accumulate_gradient
     unfreeze_embs_at = args.emb_cold_start
-    use_amp = args.amp
+    fast_train = args.fast_train
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
@@ -221,6 +221,8 @@ def main(args):
                         model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                     model_opt.zero_grad()
                     total_loss = 0
+                    if fast_train:
+                        break
             if cur_grad != 0:
                 total_loss.backward()
                 model_opt.step()
@@ -328,7 +330,7 @@ parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling 
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
 parser.add_argument('--position_alpha', default=1.0, type=float, help='The scaling factor for the position prediction loss')
 
-parser.add_argument('--amp', default=False, type=str2bool, help='Whether to use automatic mixed precision')
+parser.add_argument('--fast_train', default=False, type=str2bool, help='Whether to only do "accumulate_gradient"s number of passes before going to next batch')
 
 args = parser.parse_args()
 
