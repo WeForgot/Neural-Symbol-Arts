@@ -116,7 +116,8 @@ possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 192, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, attn_talking_heads = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None):
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, attn_talking_heads = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None,
+                       use_activations = False):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
         assert d_type in possible_decoders, 'Please select a decoder from {}'.format(possible_decoders)
@@ -167,14 +168,17 @@ class EndToEndModel(nn.Module):
             FeedForward(dim=dim, dim_out=dim, glu=True),
             nn.InstanceNorm1d(dim),
             nn.Dropout(p=0.1),
-            nn.Linear(in_features=dim, out_features=4, bias=False)
+            nn.Linear(in_features=dim, out_features=4, bias=False),
         )
         self.to_positions = nn.Sequential(nn.InstanceNorm1d(dim), nn.Linear(dim, 8, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
             nn.InstanceNorm1d(dim),
             nn.Dropout(p=0.1),
-            nn.Linear(in_features=dim, out_features=8, bias=False)
+            nn.Linear(in_features=dim, out_features=8, bias=False),
         )
+        if use_activations:
+            self.to_colors.add_module('activation', nn.Sigmoid())
+            self.to_positions.add_module('activation', nn.Tanh())
     
     def freeze_embeddings(self, freeze=True):
         self.embedding_dim.weight.requires_grad = not freeze
@@ -204,15 +208,15 @@ class EndToEndModel(nn.Module):
             x = self.decoder(y, context=context, mask=feature_mask)
         x = F.hardswish(x)
         pred_embs = self.to_classes(x)
-        pred_cols = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
-        pred_posi = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
+        pred_cols = self.to_colors(x)
+        pred_posi = self.to_positions(x)
         if return_predictions:
             return pred_embs, pred_cols, pred_posi, aux_loss
         else:
             return F.cross_entropy(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), F.mse_loss(pred_cols, label_cols), F.mse_loss(pred_posi, label_posi), aux_loss
     
     @torch.no_grad()
-    def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0, use_activations=False):
+    def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         context = self.encoder(x)
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
@@ -233,8 +237,8 @@ class EndToEndModel(nn.Module):
                 x = self.decoder(y, context=context, mask=out_mask)
 
             out_embs = self.to_classes(x)
-            out_colors = self.to_colors(x).sigmoid() if use_activations else self.to_colors(x)
-            out_positions = self.to_positions(x).tanh() if use_activations else self.to_positions(x)
+            out_colors = self.to_colors(x)
+            out_positions = self.to_positions(x)
             out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
             out_embs = out_embs.squeeze(0)
             filtered_logits = filter_logits_fn(out_embs, thres = p)

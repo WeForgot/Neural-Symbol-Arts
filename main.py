@@ -78,7 +78,8 @@ def main(args):
                             mlp_dim = metadata['mlp_dim'],
                             num_latents = metadata['num_latents'],
                             emb_drop = metadata['emb_drop'],
-                            thicc_ff=metadata['thicc_ff']).to(device)
+                            thicc_ff=metadata['thicc_ff'],
+                            use_activations=metadata['use_activations']).to(device)
         model.load_state_dict(torch.load('{}.pt'.format(name)))
         epoch = metadata['epoch']
         train_loss_array = metadata['train']
@@ -103,7 +104,8 @@ def main(args):
                             mlp_dim = args.mlp_dim,
                             num_latents = args.style_latents,
                             emb_drop = args.emb_drop,
-                            thicc_ff=thicc_ff).to(device)
+                            thicc_ff=thicc_ff,
+                            use_activations=args.activations).to(device)
         torch.save(model.state_dict(), '{}.pt'.format(name))
         metadata = {
             'epoch': 0,
@@ -121,7 +123,8 @@ def main(args):
             'mlp_dim': args.mlp_dim,
             'num_latents': args.style_latents,
             'emb_drop': args.emb_drop,
-            'thicc_ff': args.thicc_ff
+            'thicc_ff': args.thicc_ff,
+            'use_activations': args.activations
         }
         epoch = 0
         train_loss_array = []
@@ -198,7 +201,7 @@ def main(args):
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
 
-                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
+                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask)
 
                 total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
@@ -248,7 +251,7 @@ def main(args):
         for bdx, i_batch in enumerate(valid_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
-                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
+                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
@@ -284,7 +287,7 @@ def main(args):
             #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
-            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
+            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))
             dest_name = 'test_{}'.format(edx)
             np.save('test.npy', generated)
             convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
