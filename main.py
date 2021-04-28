@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from contextlib import nullcontext
 import json
 from math import isnan
 from statistics import mean
@@ -8,6 +9,7 @@ from pathlib import Path
 import pickle
 import random
 import re
+import time
 
 from adabelief_pytorch import AdaBelief
 from ranger_adabelief import RangerAdaBelief
@@ -39,13 +41,20 @@ def main(args):
     name = args.name
     accumulate_gradient = args.accumulate_gradient
     unfreeze_embs_at = args.emb_cold_start
+    use_amp = args.amp
 
     layer_alpha = args.layer_alpha
     color_alpha = args.color_alpha
     position_alpha = args.position_alpha
 
     target_length = 225
-    data_clamped = False
+    data_clamped = True
+
+    amp_context = torch.cuda.amp.autocast
+    grad_scaler = torch.cuda.amp.GradScaler(enabled = use_amp)
+    if use_amp:
+        print('Using mixed precision training')
+
 
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -109,7 +118,7 @@ def main(args):
             'image_size': 576,
             'patch_size': args.patch_size,
             'dim': args.dim,
-            'emb_dim': args.emb_dim,
+            'emb_dim': args.emb_dim if args.load_embeddings == '' else embs.shape[1],
             'e_depth': args.e_depth,
             'e_heads': args.e_heads,
             'd_depth': args.d_depth,
@@ -178,10 +187,10 @@ def main(args):
         layer_losses = 0
         color_losses = 0
         position_losses = 0
+        startTime = time.time()
         for bdx, i_batch in enumerate(train_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
-            model_opt.zero_grad()
             total_loss = 0
             batch_layer, batch_color, batch_position = 0, 0, 0
             cur_grad = 0
@@ -193,7 +202,8 @@ def main(args):
             for ldx in ldxs:
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
-                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
+                with amp_context(enabled=use_amp):
+                    layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask, use_activations=use_activations)
 
                 total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
@@ -210,16 +220,20 @@ def main(args):
                 # Accumulate gradients every
                 cur_grad = (cur_grad + 1) % accumulate_gradient
                 if cur_grad == 0:
-                    total_loss.backward()
-                    model_opt.step()
+                    grad_scaler.scale(total_loss).backward()
+                    grad_scaler.step(model_opt)
+                    grad_scaler.update()
+                    model_opt.zero_grad()
                     if model_scd is not None:
                         model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                     total_loss = 0
             if cur_grad != 0:
-                total_loss.backward()
-                model_opt.step()
+                grad_scaler.scale(total_loss).backward()
+                grad_scaler.step(model_opt)
+                grad_scaler.update()
                 if model_scd is not None:
-                    model_scd.step()
+                    model_scd.step(epoch=(epoch + bdx/len(train_loader)))
+                model_opt.zero_grad()
 
             if batch_metrics:
                 print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_layer+batch_color+batch_position, batch_layer, batch_color, batch_position))
@@ -228,7 +242,7 @@ def main(args):
             return
         train_loss_array.append([edx, total_losses, total_losses/train_size, layer_losses, layer_losses/train_size, color_losses, color_losses/train_size, position_losses, position_losses/train_size])
         pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
-        print('TRAINING Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_losses, layer_losses, color_losses, position_losses))
+        print('TRAINING Epoch #{}\n\tTime spent: {}\n\tTotal Loss: {}\n\tEmbedding Loss: {}\n\tColor Loss: {}\n\tPosition Loss: {}'.format(edx, time.time()-startTime, total_losses, layer_losses, color_losses, position_losses))
         
         # Prep model for validation
         model.eval()
@@ -239,7 +253,8 @@ def main(args):
         for bdx, i_batch in enumerate(valid_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
-                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
+                with amp_context(enabled=use_amp):
+                    emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx], use_activations=use_activations)
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
@@ -275,7 +290,8 @@ def main(args):
             #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
-            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
+            with amp_context(enabled=use_amp):
+                generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225, use_activations=use_activations))
             dest_name = 'test_{}'.format(edx)
             np.save('test.npy', generated)
             convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
@@ -320,6 +336,8 @@ parser.add_argument('--load_checkpoint', default=False, type=str2bool, help='Whe
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
 parser.add_argument('--position_alpha', default=1.0, type=float, help='The scaling factor for the position prediction loss')
+
+parser.add_argument('--amp', default=False, type=str2bool, help='Whether to use automatic mixed precision')
 
 args = parser.parse_args()
 

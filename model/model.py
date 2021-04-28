@@ -156,24 +156,22 @@ class EndToEndModel(nn.Module):
         self.emb_dropout = nn.Dropout(p=emb_drop)
         self.projection = nn.Linear(emb_dim + 12, dim)
 
-        self.norm = nn.LayerNorm(dim)
-
-        self.to_classes = nn.Linear(dim, layer_count, bias=False) if not thicc_ff else nn.Sequential(
+        self.to_classes = nn.Sequential(nn.InstanceNorm1d(dim), nn.Linear(dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.LayerNorm(dim),
+            nn.InstanceNorm1d(dim),
             nn.Dropout(p=0.1),
             nn.Linear(in_features=dim, out_features=layer_count)
         )
 
-        self.to_colors = nn.Linear(dim, 4, bias=False) if not thicc_ff else nn.Sequential(
+        self.to_colors = nn.Sequential(nn.InstanceNorm1d(dim), nn.Linear(dim, 4, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.LayerNorm(dim),
+            nn.InstanceNorm1d(dim),
             nn.Dropout(p=0.1),
             nn.Linear(in_features=dim, out_features=4, bias=False)
         )
-        self.to_positions = nn.Linear(dim, 8, bias=False) if not thicc_ff else nn.Sequential(
+        self.to_positions = nn.Sequential(nn.InstanceNorm1d(dim), nn.Linear(dim, 8, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=dim, dim_out=dim, glu=True),
-            nn.LayerNorm(dim),
+            nn.InstanceNorm1d(dim),
             nn.Dropout(p=0.1),
             nn.Linear(in_features=dim, out_features=8, bias=False)
         )
