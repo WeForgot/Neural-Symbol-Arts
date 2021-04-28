@@ -221,7 +221,6 @@ def main(args):
                         model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                     model_opt.zero_grad()
                     total_loss = 0
-                    break
             if cur_grad != 0:
                 total_loss.backward()
                 model_opt.step()
