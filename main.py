@@ -48,7 +48,7 @@ def main(args):
     position_alpha = args.position_alpha
 
     target_length = 225
-    data_clamped = True
+    data_clamped = use_activations # CHANGE THIS IF IT DOESN'T WORK TODO PLEASE PLEASE
 
 
     if torch.cuda.is_available():
