@@ -25,7 +25,7 @@ import pandas as pd
 
 from model.model import EndToEndModel
 from model.datasets import SADataset
-from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool
+from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool, load_data
 
 def main(args):
     max_epochs = args.epochs
@@ -49,6 +49,7 @@ def main(args):
 
     target_length = 225
     data_clamped = use_activations # CHANGE THIS IF IT DOESN'T WORK TODO PLEASE PLEASE
+    reverse_data = False
 
 
     if torch.cuda.is_available():
@@ -57,10 +58,7 @@ def main(args):
     else:
         device = torch.device('cpu')
         print('CUDA not available')
-    with open('vocab.pkl', 'rb') as f:
-        vocab = pickle.load(f)
-    with open('data.pkl', 'rb') as f:
-        data = pickle.load(f)
+    vocab, data = load_data(should_reverse=reverse_data, clamp_values=use_activations)
     random.seed(args.seed)
     random.shuffle(data)
     if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)) and args.load_checkpoint:
@@ -288,7 +286,7 @@ def main(args):
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))
-            dest_name = 'test_{}'.format(edx)
+            dest_name = '{}_{}'.format(name, edx)
             np.save('test.npy', generated)
             convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
         

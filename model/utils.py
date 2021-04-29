@@ -1,6 +1,7 @@
 import os
 import glob
 import lxml.etree as ET
+import xml.etree.ElementTree as ETO
 
 import numpy as np
 import torch
@@ -189,9 +190,23 @@ class Vocabulary(object):
     
     def __getitem__(self, idx):
         if isinstance(idx, str):
+            if idx not in self.layer_to_idx:
+                print('Adding {}'.format(idx))
+                self.layer_to_idx[idx] = len(self.layer_to_idx)
+                self.idx_to_layer[self.layer_to_idx[idx]] = idx
             return self.layer_to_idx[idx]
         elif isinstance(idx, int):
             return self.idx_to_layer[idx]
+        else:
+            raise ValueError('Vocabulary indices can only be strings or integers')
+    
+    def __setitem__(self, key, value):
+        if isinstance(key, str) and isinstance(value, int):
+            self.layer_to_idx[key] = value
+            self.idx_to_layer[value] = key
+        elif isinstance(key, int) and isinstance(value, str):
+            self.idx_to_layer[key] = value
+            self.layer_to_idx[value] = key
         else:
             raise ValueError('Vocabulary indices can only be strings or integers')
     
@@ -206,3 +221,76 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+def clamp_array(arr):
+    # Pos bound = +/-127
+    # Color bound = 0-255
+    # Layer type = Ignore
+    assert len(arr) == 13, 'Layer array must be of length 13'
+    #assert type(arr[0]) == np.float32, 'Array values must all be of type float'
+    arr[1:5] = [(x - 1.0) / 255.0 for x in arr[1:5]]
+    arr[5:] = [x/127.0 for x in arr[5:]]
+    return arr
+
+
+
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False, reverse = False) -> np.ndarray:
+    with open(saml_path, 'r', encoding='utf-8-sig') as f:
+        all_lines = [x for x in f.readlines()]
+        _ = all_lines.pop(1) # This isn't valid XML so scrap it
+    root = ETO.fromstring(''.join(all_lines))
+    sos_line = [vocab['<SOS>']] + [0] * 12
+    eos_line = [vocab['<EOS>']] + [0] * 12
+    pad_line = [vocab['<PAD>']] + [0] * 12
+    saml_lines = []
+    saml_mask = []
+    if reverse:
+        saml_lines.append(eos_line)
+    else:
+        saml_lines.append(sos_line)
+    saml_mask.append(True)
+    max_length += 2 # We are adding the SOS and EOS tokens
+    for ldx, layer in enumerate(root):
+        attribs = layer.attrib
+        layer_type = attribs['type']
+        color_tup = hex_to_rgb(attribs['color'])
+        alpha = attribs['alpha']
+        ltx, lty, lbx, lby = attribs['ltx'], attribs['lty'], attribs['lbx'], attribs['lby']
+        rtx, rty, rbx, rby = attribs['rtx'], attribs['rty'], attribs['rbx'], attribs['rby']
+        if attribs['visible'] == 'true':
+            cur_line = list(map(float, [vocab[layer_type], *color_tup, alpha, ltx, lty, lbx, lby, rtx, rty, rbx, rby]))
+            if clamp_values:
+                saml_lines.append(np.asarray(clamp_array(cur_line), dtype=np.float32))
+            else:
+                saml_lines.append(np.asarray(cur_line, dtype=np.float32))
+            saml_mask.append(True)
+        if verbose:
+            print('Layer #{}'.format(ldx+1))
+            print('\tType: {}'.format(layer_type))
+            print('\tColor: {}'.format(tuple(color_tup)))
+            print('\tAlpha: {}'.format(alpha))
+            print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
+            print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
+    if reverse:
+        saml_lines.append(sos_line)
+        saml_lines.reverse()
+    else:
+        saml_lines.append(eos_line)
+    saml_mask.append(True)
+    while len(saml_lines) < max_length:
+        saml_lines.append(pad_line)
+        saml_mask.append(False)
+    return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
+
+# 386 layers + start token + pad token = 388 vocab size
+def load_data(should_reverse=False, clamp_values=False):
+    vocab = Vocabulary()
+    print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
+    all_samls = glob.glob(os.path.join('data','BetterSymbolArts','processed','*.saml'))
+    data = []
+    for x in all_samls:
+        print('Working on {}'.format(x))
+        img_path = x[:-5] + '.png'
+        converted, mask = convert_saml(x, vocab, reverse = should_reverse, clamp_values=clamp_values)
+        data.append({'feature': img_path, 'label': converted, 'mask': mask})
+    return vocab, data

@@ -148,8 +148,7 @@ runs/
 # Various other things
 meta.json
 test.npy
-test*.saml
-test.saml
+*.saml
 vocab.pkl
 data.pkl
 *.json
@@ -157,3 +156,5 @@ checkpoints/
 data/Unprocessed/
 cross_valid.bat
 *.csv
+!data/BetterSymbolArts/processed
+!data/BetterSymbolArts/processed/*
