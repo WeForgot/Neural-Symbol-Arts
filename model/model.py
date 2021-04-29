@@ -14,7 +14,6 @@ from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
-from model.custom_perciever import Perceiver
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
@@ -64,9 +63,6 @@ def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents, 
     enc = StyleViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, num_latents = num_latents, channels = channels)
     return enc
 
-def make_perceiver(depth, heads):
-    return Perceiver(input_channels=3, input_axis=2, num_freq_bands=6, max_freq=10., depth=depth, latent_heads=heads)
-
 def make_autoencoder(ae_path):
     enc = torch.load(ae_path)
     return enc
@@ -113,7 +109,7 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'perceiver']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 192, patch_size = 32, channels = 3,
@@ -131,8 +127,6 @@ class EndToEndModel(nn.Module):
             self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'style':
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents, channels)
-        elif e_type == 'perceiver':
-            self.encoder = make_perceiver(e_depth, e_heads)
         elif e_type == 'conv':
             self.encoder = make_conv(dim)
         elif e_type == 'mobilenet':
