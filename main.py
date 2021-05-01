@@ -184,6 +184,7 @@ def main(args):
         color_losses = 0
         position_losses = 0
         startTime = time.time()
+        train_divide_by = 0
         for bdx, i_batch in enumerate(train_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
@@ -210,6 +211,7 @@ def main(args):
                 batch_layer += layer_loss.item()
                 batch_color += color_loss.item()
                 batch_position += position_loss.item()
+                train_divide_by += len(i_batch)
                 if isnan(total_loss.item()):
                     print('Batch loss is NaN. Breaking')
                     return
@@ -236,7 +238,7 @@ def main(args):
         if isnan(total_losses):
             print('Loss is NaN. Returning')
             return
-        train_loss_array.append([edx, total_losses, total_losses/train_size, layer_losses, layer_losses/train_size, color_losses, color_losses/train_size, position_losses, position_losses/train_size])
+        train_loss_array.append([edx, total_losses, total_losses/train_divide_by, layer_losses, layer_losses/train_divide_by, color_losses, color_losses/train_divide_by, position_losses, position_losses/train_divide_by])
         pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
         print('TRAINING Epoch #{}\n\tTime spent: {}\n\tTotal Loss: {}\n\tEmbedding Loss: {}\n\tColor Loss: {}\n\tPosition Loss: {}'.format(edx, time.time()-startTime, total_losses, layer_losses, color_losses, position_losses))
 
@@ -246,9 +248,11 @@ def main(args):
         valid_emb_loss = 0
         valid_color_loss = 0
         valid_position_loss = 0
+        valid_divide_by = 0
         for bdx, i_batch in enumerate(valid_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
+                valid_divide_by += len(i_batch)
                 emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
@@ -256,7 +260,7 @@ def main(args):
 
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
         print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
-        valid_loss_array.append([edx, total_loss, total_loss/valid_size, valid_emb_loss, valid_emb_loss/valid_size, valid_color_loss, valid_color_loss/valid_size, valid_position_loss, valid_position_loss/valid_size])
+        valid_loss_array.append([edx, total_loss, total_loss/valid_divide_by, valid_emb_loss, valid_emb_loss/valid_divide_by, valid_color_loss, valid_color_loss/valid_divide_by, valid_position_loss, valid_position_loss/valid_divide_by])
         pd.DataFrame(np.asarray(valid_loss_array)).to_csv('valid_loss.csv', header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
         print('------------------------------------------------------------------------------------------------')
 
