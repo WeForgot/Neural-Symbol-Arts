@@ -117,13 +117,13 @@ class LayersDataset(Dataset):
         return {'idx': idx, 'path': img_name, 'image': sample}
 
 class SADataset(Dataset):
-    def __init__(self, data):
+    def __init__(self, data, img_size=192):
         self.data = data
         self.rand_max = 227
         #self.cur_rand = random.randint(2, self.rand_max-1)
         self.cur_rand = self.rand_max
         #self.resize = transforms.Resize((96,192))
-        self.resize = transforms.Resize((192,192))
+        self.resize = transforms.Resize((img_size,img_size))
     
     def __len__(self):
         return len(self.data)

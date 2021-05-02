@@ -15,9 +15,11 @@ from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 from glom_pytorch import Glom
+from model.custom_twins import TwinsSVT
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
+from axial_positional_embedding import AxialPositionalEmbedding
 
 def top_p(logits, thres = 0.9):
     sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -71,6 +73,9 @@ def make_autoencoder(ae_path):
 def make_glom(image_size, patch_size, dim, levels):
     return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True)
 
+def make_twins():
+    return TwinsSVT()
+
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
 
@@ -93,10 +98,10 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'twins']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
-    def __init__(self, e_type, d_type, layer_count, image_size = 192, patch_size = 32, channels = 3,
+    def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
                        num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, attn_talking_heads = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None,
                        use_activations = False):
@@ -131,6 +136,9 @@ class EndToEndModel(nn.Module):
         elif e_type == 'glom':
             self.glom = True
             self.encoder = make_glom(image_size, patch_size, dim, 6)
+        elif e_type == 'twins':
+            raise ValueError('Holy shit it literally has 251577784 parameters on the SMALL config (and there is a fatal error but those params man...)')
+            self.encoder = make_twins()
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
@@ -166,7 +174,7 @@ class EndToEndModel(nn.Module):
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         if self.glom:
-            context = self.encoder(x, iters=7)[:,:,-1,:]
+            context = self.encoder(x)[:,:,-1,:]
         else:
             context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]

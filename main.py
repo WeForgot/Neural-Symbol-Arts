@@ -25,7 +25,7 @@ import pandas as pd
 
 from model.model import EndToEndModel
 from model.datasets import SADataset
-from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool, load_data
+from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool, load_data, linear_decay, piecewise_decay
 
 def main(args):
     max_epochs = args.epochs
@@ -42,10 +42,6 @@ def main(args):
     accumulate_gradient = args.accumulate_gradient
     unfreeze_embs_at = args.emb_cold_start
     fast_train = args.fast_train
-
-    layer_alpha = args.layer_alpha
-    color_alpha = args.color_alpha
-    position_alpha = args.position_alpha
 
     target_length = 225
     data_clamped = use_activations # CHANGE THIS IF IT DOESN'T WORK TODO PLEASE PLEASE
@@ -192,6 +188,11 @@ def main(args):
             batch_layer, batch_color, batch_position = 0, 0, 0
             cur_grad = 0
 
+            current_time_scaled = edx + (bdx/len(train_loader))
+            layer_alpha = linear_decay(0.5, 2, 100, current_time_scaled)
+            color_alpha = linear_decay(2, 1, 100, current_time_scaled)
+            position_alpha = linear_decay(2, 1, 100, current_time_scaled)
+
             # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
             ldxs = list(range(2, label.shape[1]))
             random.shuffle(ldxs)
@@ -202,7 +203,10 @@ def main(args):
 
                 layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask)
 
-                total_loss += layer_loss + color_loss + position_loss + (aux_loss if aux_loss is not None else 0)
+                total_loss += layer_loss * layer_alpha + \
+                              color_loss * color_alpha + \
+                              position_loss * position_alpha + \
+                              (aux_loss if aux_loss is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
                 layer_losses += layer_loss.item()
@@ -239,7 +243,7 @@ def main(args):
             print('Loss is NaN. Returning')
             return
         train_loss_array.append([edx, total_losses, total_losses/train_divide_by, layer_losses, layer_losses/train_divide_by, color_losses, color_losses/train_divide_by, position_losses, position_losses/train_divide_by])
-        pd.DataFrame(np.asarray(train_loss_array)).to_csv('train_loss.csv', header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
+        pd.DataFrame(np.asarray(train_loss_array)).to_csv('{}_train.csv'.format(name), header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
         print('TRAINING Epoch #{}\n\tTime spent: {}\n\tTotal Loss: {}\n\tEmbedding Loss: {}\n\tColor Loss: {}\n\tPosition Loss: {}'.format(edx, time.time()-startTime, total_losses, layer_losses, color_losses, position_losses))
 
         # Prep model for validation
@@ -261,7 +265,7 @@ def main(args):
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
         print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
         valid_loss_array.append([edx, total_loss, total_loss/valid_divide_by, valid_emb_loss, valid_emb_loss/valid_divide_by, valid_color_loss, valid_color_loss/valid_divide_by, valid_position_loss, valid_position_loss/valid_divide_by])
-        pd.DataFrame(np.asarray(valid_loss_array)).to_csv('valid_loss.csv', header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
+        pd.DataFrame(np.asarray(valid_loss_array)).to_csv('{}_valid.csv'.format(name), header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
         print('------------------------------------------------------------------------------------------------')
 
 

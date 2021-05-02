@@ -295,3 +295,18 @@ def load_data(should_reverse=False, clamp_values=False):
         converted, mask = convert_saml(x, vocab, reverse = should_reverse, clamp_values=clamp_values)
         data.append({'feature': img_path, 'label': converted, 'mask': mask})
     return vocab, data
+
+
+# Loss scaling functions
+
+def linear_decay(min_val, max_val, max_t, t):
+    return min_val + (max_val - min_val) / (max_t - t) if t < max_t else max_val
+
+def piecewise_decay(time_val_pairings, t):
+    vals_sorted = sorted(time_val_pairings, key=lambda x: x[0])
+    if len(vals_sorted) == 1:
+        return vals_sorted[0][1]
+    for idx in range(len(vals_sorted)-1):
+        if vals_sorted[idx][1] <= t and t <= vals_sorted[idx+1][1]:
+            return vals_sorted[idx][1]
+    return vals_sorted[-1][1]
