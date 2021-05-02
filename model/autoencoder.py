@@ -35,112 +35,6 @@ class ChannelSELayer(nn.Module):
         a, b = squeeze_tensor.size()
         output_tensor = torch.mul(x, fc_out_2.view(a, b, 1, 1))
         return output_tensor
-'''
-class Autoencoder(nn.Module):
-    def __init__(self, channels=4):
-        super(Autoencoder, self).__init__()
-
-        # ENCODER
-
-        self.enc1 = nn.Sequential(
-            nn.Conv2d(in_channels=channels, out_channels=8, kernel_size=5, stride=2),
-            nn.BatchNorm2d(num_features=8),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.enc2 = nn.Sequential(
-            DepthwiseSeperableConv(nin=8, kernels_per_layer=5, nout=16),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.enc3 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=2),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.enc4 = nn.Sequential(
-            DepthwiseSeperableConv(nin=16, kernels_per_layer=5, nout=16),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.enc5 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=2),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.se1 = ChannelSELayer(16)
-
-        self.special_flatten = nn.Flatten(start_dim=1, end_dim=2)
-
-        # DECODER
-
-        self.se2 = ChannelSELayer(16)
-
-        self.dec1 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=16, out_channels=16, kernel_size=4, stride=2),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.dec2 = nn.Sequential(
-            DepthwiseSeperableConv(nin=16, kernels_per_layer=5, nout=16),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.dec3 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=16, out_channels=16, kernel_size=4, stride=2),
-            nn.BatchNorm2d(num_features=16),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.dec4 = nn.Sequential(
-            DepthwiseSeperableConv(nin=16, kernels_per_layer=5, nout=8),
-            nn.BatchNorm2d(num_features=8),
-            nn.Dropout2d(p=0.2),
-            nn.Hardswish()
-        )
-
-        self.dec5 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=8, out_channels=channels, kernel_size=6, stride=2),
-            DepthwiseSeperableConv(nin=channels, kernels_per_layer=1, nout=channels)
-        )
-    
-    def encode(self, x):
-        x = self.enc1(x)
-        x = self.enc2(x)
-        x = self.enc3(x)
-        x = self.enc4(x)
-        x = self.enc5(x)
-        x = self.se1(x)
-        return x
-    
-    def decode(self, x):
-        x = self.se2(x)
-        x = self.dec1(x)
-        x = self.dec2(x)
-        x = self.dec3(x)
-        x = self.dec4(x)
-        x = self.dec5(x)
-        return x
-
-    def forward(self, x):
-        latent = self.encode(x)
-        recon = self.decode(latent)
-        return self.special_flatten(latent), recon
-'''
 
 class Permute(nn.Module):
     def __init__(self, *args):
@@ -153,14 +47,14 @@ class Permute(nn.Module):
 
 
 class Autoencoder(nn.Module):
-    def __init__(self, dim, channels=4, p=0.2):
+    def __init__(self, dim, channels=3, p=0.2):
         super(Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels=channels, out_channels=8, kernel_size=5, stride=2), # torch.Size([4, 8, 142, 286])
             nn.BatchNorm2d(num_features=8),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
-            DepthwiseSeperableConv(nin=8, kernels_per_layer=3, nout=16), # torch.Size([4, 16, 142, 286])
+            DepthwiseSeperableConv(nin=8, kernels_per_layer=1, nout=16), # torch.Size([4, 16, 142, 286])
             nn.BatchNorm2d(num_features=16),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
@@ -168,17 +62,17 @@ class Autoencoder(nn.Module):
             nn.BatchNorm2d(num_features=16),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
-            DepthwiseSeperableConv(nin=16, kernels_per_layer=3, nout=32), # torch.Size([4, 32, 70, 142])
+            DepthwiseSeperableConv(nin=16, kernels_per_layer=1, nout=32), # torch.Size([4, 32, 70, 142])
             nn.BatchNorm2d(num_features=32),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=2), # torch.Size([4, 32, 34, 70])
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=1, stride=2), # torch.Size([4, 32, 34, 70])
             nn.BatchNorm2d(num_features=32),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
             nn.Flatten(start_dim=1, end_dim=2),
             Permute(2,1),
-            nn.Linear(in_features=1088, out_features=dim)
+            #nn.Linear(in_features=1088, out_features=dim)
         )
 
         self.decoder = nn.Sequential(

@@ -15,7 +15,7 @@ from torchvision import transforms
 from torchvision import models
 from adabelief_pytorch import AdaBelief
 
-from model.utils import Vocabulary, get_parameter_count
+from model.utils import Vocabulary, get_parameter_count, load_data
 
 class ColorModify(nn.Module):
     def __init__(self):
@@ -76,8 +76,7 @@ def main():
     else:
         device = torch.device('cpu')
         print('CUDA not available')
-    with open('vocab.pkl', 'rb') as f:
-        vocab = pickle.load(f)
+    vocab, _ = load_data()
     dataset = LayersDataset(vocab, os.path.join('.', 'data', 'Layers'))
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
     model = models.mobilenet_v3_small(pretrained=True)

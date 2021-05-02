@@ -58,6 +58,7 @@ def main(args):
     random.seed(args.seed)
     random.shuffle(data)
     if name != '' and os.path.exists('{}.json'.format(name)) and os.path.exists('{}.pt'.format(name)) and args.load_checkpoint:
+        print('Loading existing checkpoint')
         with open('{}.json'.format(name), 'r') as f:
             metadata = json.load(f)
         model = EndToEndModel(metadata['e_type'], metadata['d_type'], metadata['vocab_len'],
@@ -80,6 +81,7 @@ def main(args):
         valid_loss_array = metadata['valid']
         
     else:
+        print('Creating new checkpoint')
         if name == '':
             name = 'model'
         embs = None
@@ -135,7 +137,7 @@ def main(args):
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
-    resize = transforms.Resize((96,192))
+    resize = transforms.Resize((192,192))
 
     optimizer = args.optimizer
     model_scd = None
@@ -153,7 +155,7 @@ def main(args):
     else:
         model_opt = optim.SGD(model.parameters(), lr=1e-1)
         model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=5, T_mult=2)
-    if os.path.exists('{}_optim.pt'.format(name)):
+    if os.path.exists('{}_optim.pt'.format(name)) and args.load_checkpoint:
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
         torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
