@@ -84,8 +84,8 @@ def make_routing(dim, depth, heads):
     return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True)
 
 
-def make_conv(patch_size, channels):
-    return FCModel(patch_size, channels=channels)
+def make_conv(dim, patch_size, channels):
+    return FCModel(dim, patch_size, channels=channels)
 
 def make_mobilenet(dim):
     model = models.mobilenet_v3_small()
@@ -128,7 +128,7 @@ class EndToEndModel(nn.Module):
         elif e_type == 'style':
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents, channels)
         elif e_type == 'conv':
-            self.encoder = make_conv(patch_size, channels)
+            self.encoder = make_conv(dim, patch_size, channels)
         elif e_type == 'mobilenet':
             self.encoder = make_mobilenet(dim)
         elif e_type == 'glom':
