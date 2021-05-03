@@ -149,12 +149,13 @@ def main(args):
     elif optimizer == 'asgd':
         model_opt = optim.ASGD(model.parameters(), lr=1e-3)
     elif optimizer == 'adabelief':
-        model_opt = AdaBelief(model.parameters(), lr=5e-4, betas=(0.9,0.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True, rectify=True, print_change_log=False)
+        model_opt = AdaBelief(model.parameters(), lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=1e-2, weight_decouple=True, rectify=False, print_change_log=False)
+        model_scd = optim.lr_scheduler.MultiStepLR(model_opt, milestones=[50, 75, 90], gamma=1e-1)
     elif optimizer == 'ranger':
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-1)
-        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=5, T_mult=2)
+        model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5)
+        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=5, T_mult=2, verbose=True)
     if os.path.exists('{}_optim.pt'.format(name)) and args.load_checkpoint:
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
@@ -193,7 +194,7 @@ def main(args):
             current_time_scaled = edx + (bdx/len(train_loader))
             layer_alpha = linear_decay(0.5, 2, 100, current_time_scaled)
             color_alpha = linear_decay(2, 1, 100, current_time_scaled)
-            position_alpha = linear_decay(2, 1, 100, current_time_scaled)
+            position_alpha = linear_decay(1.5, 1, 100, current_time_scaled)
 
             # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
             ldxs = list(range(2, label.shape[1]))
