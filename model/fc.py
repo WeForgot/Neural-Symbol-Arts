@@ -3,7 +3,9 @@ import torch.nn as nn
 
 from einops.layers.torch import Rearrange
 
+from axial_attention import AxialAttention
 from axial_positional_embedding import AxialPositionalEmbedding
+from linear_attention_transformer import LinearAttentionTransformer
 
 
 class DepthWiseConv2d(nn.Module):
@@ -70,6 +72,28 @@ class FCModel(nn.Module):
         self.axial3 = AxialPositionalEmbedding(dim = dim, axial_shape = (8,8))
         self.axial4 = AxialPositionalEmbedding(dim = dim, axial_shape = (8,8))
 
+        self.a_axial1 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = dim, nhead = 8, activation='gelu'
+            ), num_layers=1
+        )
+        self.a_axial2 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = dim, nhead = 8, activation='gelu'
+            ), num_layers=1
+        )
+        self.a_axial3 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = dim, nhead = 8, activation='gelu'
+            ), num_layers=1
+        )
+        self.a_axial4 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = dim, nhead = 8, activation='gelu'
+            ), num_layers=1
+        )
+
+
         self.bn1 = nn.BatchNorm1d(num_features = 36)
         self.bn2 = nn.BatchNorm1d(num_features = 36)
         self.bn3 = nn.BatchNorm1d(num_features = 36)
@@ -87,16 +111,20 @@ class FCModel(nn.Module):
         x = self.axial1(x)
         y = self.axial2(y)
         z = self.axial3(z)
+        x = self.a_axial1(x)
+        y = self.a_axial2(y)
+        z = self.a_axial3(z)
         x = self.bn1(x)
         y = self.bn2(y)
         z = self.bn3(z)
         out = torch.cat([x,y,z], dim=-1)
         out = self.axial4(out)
+        out = self.a_axial4(out)
         out = self.embedding(out)
         return out
 
 class SimpleConv(nn.Module):
-    def __init__(self, blocks = 3, channels=3):
+    def __init__(self, dim, depth=2, heads=16, blocks = 4, channels=3, max_filters = 64):
         super(SimpleConv, self).__init__()
         all_blocks = []
         cur_filters = 8
@@ -107,12 +135,23 @@ class SimpleConv(nn.Module):
                 nn.Sequential(
                     nn.Conv2d(in_channels=cur_filters, out_channels=cur_filters*2, kernel_size=5, stride=3, bias=False),
                     nn.BatchNorm2d(num_features=cur_filters*2),
-                    nn.ReLU()
+                    nn.ReLU(),
                     nn.Dropout2d(p=0.2)
                 )
             )
             cur_filters *= 2
+            cur_filters = min(max_filters, cur_filters)
+        all_blocks.append(Rearrange('b c h w -> b c (h w)'))
+        all_blocks.append(nn.LazyLinear(out_features=dim, bias=False))
+        #self.transformer = LinearAttentionTransformer(dim = dim, depth = depth, max_seq_len = cur_filters, heads = heads)
+        #all_blocks.append(nn.TransformerEncoder(
+        #    nn.TransformerEncoderLayer(
+        #        d_model = dim, nhead = 16, activation='gelu'
+        #    ), num_layers=3
+        #))
         self.layers = nn.Sequential(*all_blocks)
     
     def forward(self, x):
-        return self.layers(x)
+        x = self.layers(x)
+        #x = self.transformer(x)
+        return x

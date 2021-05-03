@@ -21,6 +21,6 @@ GLOM stuff
 
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=128 --mlp_dim=128 --e_type=glom --e_depth=4 --e_heads=16 --d_type=routing --d_depth=8 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=16 --name=small --optimizer=ranger --activations=True --fast_train=True
 
-
+python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=128 --mlp_dim=128 --e_type=cvt --d_type=routing --d_depth=2 --d_heads=16 --valid_split=0.2 --accumulate_gradient=16 --name=small --optimizer=ranger --activations=True --fast_train=True
 
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=64 --mlp_dim=64 --e_type=conv --e_depth=2 --e_heads=16 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=16 --name=small --optimizer=adamw --fast_train=True --activations=True

@@ -16,7 +16,8 @@ from model.style_model import StyleViT
 from model.custom_vit import ViT
 from glom_pytorch import Glom
 from model.custom_twins import TwinsSVT
-from model.fc import FCModel
+from model.fc import FCModel, SimpleConv
+from model.torchformer import TorchEncoder
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
@@ -47,9 +48,7 @@ def make_vit(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
     return enc
 
 def make_cvt(dim):
-    enc = CvT(num_classes=1)
-    enc.layers[-1] = nn.Identity()
-    enc.layers[-2] = nn.Identity()
+    enc = CvT(out_dim=dim, s1_emb_dim=16, s2_emb_dim=32, s3_emb_dim=64)
     return enc
 
 def make_nystrom(image_size, patch_size, dim, depth, heads, channels):
@@ -74,8 +73,9 @@ def make_autoencoder(ae_path):
 def make_glom(image_size, patch_size, dim, levels):
     return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True)
 
-def make_twins():
-    return TwinsSVT()
+def make_twins(dim):
+    #raise ValueError('Holy shit it literally has 251577784 parameters on the SMALL config (and there is a fatal error but those params man...)')
+    return TwinsSVT(out_dims=dim)
 
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
@@ -85,7 +85,11 @@ def make_routing(dim, depth, heads):
 
 
 def make_conv(dim, patch_size, channels):
-    return FCModel(dim, patch_size, channels=channels)
+    return SimpleConv(dim, blocks = 3, channels = channels)
+    #return FCModel(dim, patch_size, channels=channels)
+
+def make_torch(image_size, patch_size, dim, depth, heads, channels):
+    return TorchEncoder(image_size, patch_size, dim, depth, heads, channels)
 
 def make_mobilenet(dim):
     model = models.mobilenet_v3_small()
@@ -96,7 +100,7 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'twins']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'twins', 'torch']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
@@ -135,8 +139,9 @@ class EndToEndModel(nn.Module):
             self.glom = True
             self.encoder = make_glom(image_size, patch_size, dim, 6)
         elif e_type == 'twins':
-            raise ValueError('Holy shit it literally has 251577784 parameters on the SMALL config (and there is a fatal error but those params man...)')
-            self.encoder = make_twins()
+            self.encoder = make_twins(dim)
+        elif e_type == 'torch':
+            self.encoder = make_torch(image_size, patch_size, dim, e_depth, e_heads, channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss

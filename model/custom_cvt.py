@@ -147,8 +147,8 @@ class CvT(nn.Module):
     def __init__(
         self,
         *,
-        num_classes,
-        s1_emb_dim = 64,
+        out_dim,
+        s1_emb_dim = 32,
         s1_emb_kernel = 7,
         s1_emb_stride = 4,
         s1_proj_kernel = 3,
@@ -195,5 +195,10 @@ class CvT(nn.Module):
             *layers,
         )
 
+        self.projection = nn.Linear(in_features=s3_emb_dim, out_features=out_dim)
+
     def forward(self, x):
-        return rearrange(self.layers(x), 'b d h w -> b (h w) d')
+        x = self.layers(x)
+        x = rearrange(x, 'b d h w -> b (h w) d')
+        x = self.projection(x)
+        return x

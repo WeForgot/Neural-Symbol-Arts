@@ -173,25 +173,26 @@ class TwinsSVT(nn.Module):
     def __init__(
         self,
         *,
-        s1_emb_dim = 64,
+        out_dims,
+        s1_emb_dim = 16,
         s1_patch_size = 4,
-        s1_local_patch_size = 7,
-        s1_global_k = 7,
+        s1_local_patch_size = 6,
+        s1_global_k = 5,
         s1_depth = 1,
-        s2_emb_dim = 128,
+        s2_emb_dim = 32,
         s2_patch_size = 2,
-        s2_local_patch_size = 7,
-        s2_global_k = 7,
+        s2_local_patch_size = 6,
+        s2_global_k = 5,
         s2_depth = 1,
-        s3_emb_dim = 256,
+        s3_emb_dim = 64,
         s3_patch_size = 2,
-        s3_local_patch_size = 7,
-        s3_global_k = 7,
+        s3_local_patch_size = 6,
+        s3_global_k = 5,
         s3_depth = 5,
-        s4_emb_dim = 512,
+        s4_emb_dim = 128,
         s4_patch_size = 2,
-        s4_local_patch_size = 7,
-        s4_global_k = 7,
+        s4_local_patch_size = 6,
+        s4_global_k = 5,
         s4_depth = 4,
         peg_kernel_size = 3,
         dropout = 0.
@@ -225,4 +226,6 @@ class TwinsSVT(nn.Module):
         )
 
     def forward(self, x):
+        x = self.layers(x)
+        print(x.shape)
         return self.layers(x)
