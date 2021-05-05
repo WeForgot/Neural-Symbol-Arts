@@ -120,7 +120,6 @@ class EndToEndModel(nn.Module):
             self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         
         self.emb_dropout = nn.Dropout(p=0.1)
-        dim = emb_dim + 12
 
         self.glom = False # Because GLOM is a fucking shitfest
         if e_type == 'vit':
@@ -152,10 +151,12 @@ class EndToEndModel(nn.Module):
             self.decoder = make_routing(dim = dim, depth = d_depth, heads = int(dim/2))
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
+        
+        self.projection = nn.Linear(in_features=dim, out_features=(emb_dim+4+8))
 
-        self.to_classes = nn.Sequential(nn.InstanceNorm1d(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
+        self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
-            nn.InstanceNorm1d(emb_dim),
+            nn.LayerNorm(emb_dim),
             nn.Dropout(p=0.1),
             nn.Linear(in_features=emb_dim, out_features=layer_count)
         )
@@ -192,6 +193,7 @@ class EndToEndModel(nn.Module):
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
+        x = self.projection(x)
         pred_embs, pred_cols, pred_posi = torch.split(x, [embs.shape[-1],4,8], dim=-1)
         pred_embs = self.to_classes(pred_embs)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
