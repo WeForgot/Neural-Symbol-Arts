@@ -227,11 +227,12 @@ class EndToEndModel(nn.Module):
             embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
             embs = self.emb_dropout(embs)
             y = torch.cat([embs, feature_met], dim=-1)
+            y = self.project_in(y)
             if self.routing:
                 x, _ = self.decoder(y, context=context, mask=out_mask)
             else:
                 x = self.decoder(y, context=context, mask=out_mask)
-
+            x = self.project_out(x)
             out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
             out_embs = self.to_classes(out_embs)
             out_colors, out_positions = self.color_activation(out_colors), self.position_activation(out_positions)
