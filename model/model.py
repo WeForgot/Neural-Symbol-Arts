@@ -152,6 +152,13 @@ class EndToEndModel(nn.Module):
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
 
+        
+        latent_dim = emb_dim + 4 + 8
+
+        
+        self.project_in = nn.Linear(in_features=latent_dim, out_features=dim)
+        self.project_out = nn.Linear(in_features=dim, out_features=latent_dim)
+
         self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
             FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
             nn.LayerNorm(emb_dim),
@@ -186,12 +193,14 @@ class EndToEndModel(nn.Module):
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
+        y = self.project_in(y)
         aux_loss = None
         if self.routing:
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
-
+        
+        x = self.project_out(x)
         pred_embs, pred_cols, pred_posi = torch.split(x, [embs.shape[-1],4,8], dim=-1)
         pred_embs = self.to_classes(pred_embs)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
