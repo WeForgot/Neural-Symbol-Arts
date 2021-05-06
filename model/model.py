@@ -170,8 +170,8 @@ class EndToEndModel(nn.Module):
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
         
         self.class_loss = nn.CrossEntropyLoss()
-        self.color_loss = nn.MSELoss()
-        self.position_loss = nn.MSELoss()
+        self.color_loss = nn.SmoothL1Loss()
+        self.position_loss = nn.SmoothL1Loss()
     
     def freeze_embeddings(self, freeze=True):
         self.embedding_dim.weight.requires_grad = not freeze
