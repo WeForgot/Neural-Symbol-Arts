@@ -155,12 +155,11 @@ def main(args):
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     else:
         model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5)
-        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=5, T_mult=2, verbose=True)
+        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-1, step_size_up=len(train_loader)*10, step_size_down=len(train_loader)*10)
     if os.path.exists('{}_optim.pt'.format(name)) and args.load_checkpoint:
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
     else:
         torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
-    
     SOS_token = vocab['<SOS>']
     EOS_token = vocab['<EOS>']
     best_loss = None
@@ -227,19 +226,18 @@ def main(args):
                 if cur_grad == 0:
                     total_loss.backward()
                     model_opt.step()
-                    if model_scd is not None:
-                        model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                     model_opt.zero_grad()
                     total_loss = 0
                     if fast_train:
                         break
+            
             if cur_grad != 0:
                 total_loss.backward()
                 model_opt.step()
-                if model_scd is not None:
-                    model_scd.step(epoch=(epoch + bdx/len(train_loader)))
                 model_opt.zero_grad()
-
+            
+            if model_scd is not None:
+                model_scd.step()
             if batch_metrics:
                 print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_layer+batch_color+batch_position, batch_layer, batch_color, batch_position))
         if isnan(total_losses):

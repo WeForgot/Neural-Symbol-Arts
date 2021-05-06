@@ -157,6 +157,7 @@ class EndToEndModel(nn.Module):
 
         
         self.project_in = nn.Linear(in_features=latent_dim, out_features=dim)
+        self.pre_out_norm = nn.InstanceNorm1d(num_features=dim)
         self.project_out = nn.Linear(in_features=dim, out_features=latent_dim)
 
         self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
@@ -199,7 +200,7 @@ class EndToEndModel(nn.Module):
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
-        
+        x = self.pre_out_norm(x)
         x = self.project_out(x)
         pred_embs, pred_cols, pred_posi = torch.split(x, [embs.shape[-1],4,8], dim=-1)
         pred_embs = self.to_classes(pred_embs)
@@ -232,6 +233,7 @@ class EndToEndModel(nn.Module):
                 x, _ = self.decoder(y, context=context, mask=out_mask)
             else:
                 x = self.decoder(y, context=context, mask=out_mask)
+            x = self.pre_out_norm(x)
             x = self.project_out(x)
             out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
             out_embs = self.to_classes(out_embs)
