@@ -201,13 +201,16 @@ def main(args):
             color_alpha = linear_decay(2, 1, 100, current_time_scaled)
             position_alpha = linear_decay(1.5, 1, 100, current_time_scaled)
 
-            # Doing it this way to make absolutely sure every index of the SAML is getting covered by training
-            if len(ldxs) == 0:
-                ldxs = list(range(2, label_len))
-                random.shuffle(ldxs)
+            
 
             # Train the model in a generative manner
             for idx in range(label_len):
+
+                # Doing it this way to make absolutely sure every index of the SAML is getting covered by training
+                if len(ldxs) == 0:
+                    ldxs = list(range(2, label_len))
+                    random.shuffle(ldxs)
+
                 ldx = ldxs.pop(0)
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
