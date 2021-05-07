@@ -10,7 +10,7 @@ Phantasy Star Online 2 allows you to generate Symbol Arts (fancy word for art) b
 Because not all of us are artistically inclined and/or have someone that can convert images for us ¯\\\_(ツ)\_/¯
 
 ## How is it?
-The end to end model is an encoder-decoder model that uses a [vision transformer](https://arxiv.org/abs/2010.11929) (or some variant thereof) for the encoder and a generative decoder (right now just a vanilla with improvements or [routing transformer](https://arxiv.org/pdf/2003.05997.pdf). Data is picked and converted by hand from a number of sources.
+The end to end model is an encoder-decoder model that uses a [vision transformer](https://arxiv.org/abs/2010.11929) (or some variant thereof) for the encoder and a generative decoder (right now just a vanilla with improvements or [routing transformer](https://arxiv.org/pdf/2003.05997.pdf)). Data is picked and converted by hand from a number of sources.
 
 ## Who is it?
 Weforgot and anyone that uses it :)
