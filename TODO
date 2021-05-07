@@ -10,7 +10,7 @@ Large (Style/Decoder):
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=128 --mlp_dim=128 --emb_dim=8 --e_type=style --e_depth=3 --e_heads=16 --style_latents=4 --d_type=decoder --d_depth=6 --d_heads=16 --patch_size=16 --valid_split=0.3 --accumulate_gradient=8 --thicc_ff=True --name=large_sd
 
 Small (Style/Routing):
-python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=4 --e_type=vit --e_depth=2 --e_heads=8 --d_type=routing --d_depth=2 --d_heads=16 --patch_size=16 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=sgd
+python main.py --epochs 100000 --patience=50 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=4 --e_type=vit --e_depth=2 --e_heads=8 --d_type=routing --d_depth=2 --d_heads=16 --patch_size=16 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=sgd
 
 Large (Style/Routing):
 python main.py --epochs 100000 --batch_metrics=True --batch_size=8 --eval_every=1 --dim=128 --mlp_dim=128 --emb_dim=8 --e_type=vit --e_depth=3 --e_heads=8 --d_type=routing --d_depth=6 --d_heads=32 --patch_size=16 --valid_split=0.3 --accumulate_gradient=16 --name=large_vit_rtg --fast_train=True --activations=True --optimizer=adamw

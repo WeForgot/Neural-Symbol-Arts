@@ -7,7 +7,6 @@ import torchvision.models as models
 
 from einops.layers.torch import Rearrange
 
-from vit_pytorch.efficient import ViT as EfficientViT
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
 from model.custom_cvt import CvT
@@ -53,15 +52,15 @@ def make_cvt(dim):
     enc = CvT(out_dim=dim, s1_emb_dim=16, s2_emb_dim=32, s3_emb_dim=64)
     return enc
 
-def make_nystrom(image_size, patch_size, dim, depth, heads, channels):
-    raise NotImplementedError('There are issues with this right now. Come back later :3c')
-    enc = EfficientViT(image_size = 576, patch_size = patch_size, num_classes = 1, dim = dim,
-                       transformer = Nystromformer(
+def make_efficient(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
+    enc = ViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels,
+                       transformer = RoutingTransformer(
                            dim = dim,
                            depth = depth,
                            heads = heads,
-                           num_landmarks = 128))
-    enc.mlp_head = nn.Identity()
+                           max_seq_len = 576,
+                           ff_glu = True,
+                           use_scale_norm = True))
     return enc
 
 def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents, channels):
@@ -98,7 +97,7 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'torch']
+possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
@@ -118,14 +117,16 @@ class EndToEndModel(nn.Module):
             self.embedding_dim = nn.Embedding(layer_count, emb_dim)
         
         self.emb_dropout = nn.Dropout(p=0.1)
-
+        self.enc_route = False
+        self.dec_route = False
         self.glom = False # Because GLOM is a fucking shitfest
         if e_type == 'vit':
             self.encoder = make_vit(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         elif e_type == 'cvt':
             self.encoder = make_cvt(dim)
-        elif e_type == 'nystrom':
-            self.encoder = make_nystrom(image_size, patch_size, dim, e_depth, e_heads, channels)
+        elif e_type == 'efficient':
+            self.enc_route = True
+            self.encoder = make_efficient(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, channels)
         elif e_type == 'style':
             self.encoder = make_style(image_size, patch_size, dim, e_depth, e_heads, mlp_dim, num_latents, channels)
         elif e_type == 'conv':
@@ -149,7 +150,7 @@ class EndToEndModel(nn.Module):
         if d_type == 'decoder':
             self.decoder = make_decoder(dim = dim, depth = d_depth, heads = int(dim/2), use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb, attn_talking_heads = attn_talking_heads)
         elif d_type == 'routing':
-            self.routing = True
+            self.dec_route = True
             self.decoder = make_routing(dim = dim, depth = d_depth, heads = int(dim/2))
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
@@ -184,10 +185,14 @@ class EndToEndModel(nn.Module):
         
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
+        enc_aux_loss = None
         if self.glom:
             context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
-            context = self.encoder(x)
+            if self.enc_route:
+                context, enc_aux_loss = self.encoder(x)
+            else:
+                context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
@@ -196,8 +201,8 @@ class EndToEndModel(nn.Module):
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
         y = self.project_in(y)
-        aux_loss = None
-        if self.routing:
+        dec_aux_loss = None
+        if self.dec_route:
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             x = self.decoder(y, context=context, mask=feature_mask)
@@ -207,16 +212,19 @@ class EndToEndModel(nn.Module):
         pred_embs = self.to_classes(pred_embs)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
         if return_predictions:
-            return pred_embs, pred_cols, pred_posi, aux_loss
+            return pred_embs, pred_cols, pred_posi, enc_aux_loss
         else:
-            return self.class_loss(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), self.color_loss(pred_cols, label_cols), self.position_loss(pred_posi, label_posi), aux_loss
+            return self.class_loss(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), self.color_loss(pred_cols, label_cols), self.position_loss(pred_posi, label_posi), dec_aux_loss, enc_aux_loss
     
     @torch.no_grad()
     def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         if self.glom:
             context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
-            context = self.encoder(x)
+            if self.enc_route:
+                context, _ = self.encoder(x)
+            else:
+                context = self.encoder(x)
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
@@ -230,7 +238,7 @@ class EndToEndModel(nn.Module):
             embs = self.emb_dropout(embs)
             y = torch.cat([embs, feature_met], dim=-1)
             y = self.project_in(y)
-            if self.routing:
+            if self.dec_route:
                 x, _ = self.decoder(y, context=context, mask=out_mask)
             else:
                 x = self.decoder(y, context=context, mask=out_mask)

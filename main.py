@@ -19,6 +19,7 @@ from skimage import io
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch_optimizer as optim_addon
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import pandas as pd
@@ -143,19 +144,22 @@ def main(args):
     optimizer = args.optimizer
     model_scd = None
     if optimizer == 'adam':
-        model_opt = optim.Adam(model.parameters(), lr=1e-3)
-        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=1000, T_mult=2)
+        model_opt = optim.Adam(model.parameters(), lr=1e-1, cycle_momentum=False)       
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
         model_opt = optim.ASGD(model.parameters(), lr=1e-3)
+        model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-1, step_size_up=len(train_loader)*10, step_size_down=len(train_loader)*10)
     elif optimizer == 'adabelief':
-        model_opt = AdaBelief(model.parameters(), lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=1e-2, weight_decouple=True, rectify=False, print_change_log=False)
-        model_scd = optim.lr_scheduler.MultiStepLR(model_opt, milestones=[50, 75, 90], gamma=1e-1)
+        model_opt = AdaBelief(model.parameters(), lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=0, weight_decouple=False, rectify=False, print_change_log=False)
     elif optimizer == 'ranger':
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
+    elif optimizer == 'yogi':
+        model_opt = optim_addon.Yogi(model.parameters(), lr=1e-2, weight_decay=1e-4)
+    elif optimizer == 'diffgrad':
+        model_opt = optim_addon.DiffGrad(model.parameters(), lr=1e-2, weight_decay=1e-4)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5)
+        model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5, weight_decay=1e-4)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-1, step_size_up=len(train_loader)*10, step_size_down=len(train_loader)*10)
     if os.path.exists('{}_optim.pt'.format(name)) and args.load_checkpoint:
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
@@ -215,12 +219,13 @@ def main(args):
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
 
-                layer_loss, color_loss, position_loss, aux_loss = model(feature, pad_label, mask=pad_mask)
+                layer_loss, color_loss, position_loss, enc_aux, dec_aux = model(feature, pad_label, mask=pad_mask)
 
                 total_loss += layer_loss * layer_alpha + \
                               color_loss * color_alpha + \
                               position_loss * position_alpha + \
-                              (aux_loss if aux_loss is not None else 0)
+                              (enc_aux if enc_aux is not None else 0) + \
+                              (dec_aux if dec_aux is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
                 layer_losses += layer_loss.item()
@@ -273,7 +278,7 @@ def main(args):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
                 valid_divide_by += len(i_batch)
-                emb_loss, color_loss, pos_loss, aux_loss = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                emb_loss, color_loss, pos_loss, enc_aux, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
