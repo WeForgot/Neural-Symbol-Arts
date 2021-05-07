@@ -145,8 +145,10 @@ class Glom(nn.Module):
 
             levels = levels_mean  # set for next iteration
             hiddens.append(levels)
+        
 
         if return_all:
             return torch.stack(hiddens)  # return (time step, batch, num columns, levels, dimension)
 
+        levels = self.out_attention(levels)
         return levels

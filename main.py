@@ -138,6 +138,7 @@ def main(args):
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
     resize = transforms.Resize((192,192))
+    label_len = dataset[0]['label'].shape[1]
 
     optimizer = args.optimizer
     model_scd = None
@@ -183,6 +184,11 @@ def main(args):
         position_losses = 0
         startTime = time.time()
         train_divide_by = 0
+
+        # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
+        ldxs = list(range(2, label_len))
+        random.shuffle(ldxs)
+
         for bdx, i_batch in enumerate(train_loader):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
 
@@ -195,11 +201,14 @@ def main(args):
             color_alpha = linear_decay(2, 1, 100, current_time_scaled)
             position_alpha = linear_decay(1.5, 1, 100, current_time_scaled)
 
-            # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
-            ldxs = list(range(2, label.shape[1]))
-            random.shuffle(ldxs)
+            # Doing it this way to make absolutely sure every index of the SAML is getting covered by training
+            if len(ldxs) == 0:
+                ldxs = list(range(2, label_len))
+                random.shuffle(ldxs)
+
             # Train the model in a generative manner
-            for ldx in ldxs:
+            for idx in range(label_len):
+                ldx = ldxs.pop(0)
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
 
@@ -218,6 +227,9 @@ def main(args):
                 batch_color += color_loss.item()
                 batch_position += position_loss.item()
                 train_divide_by += len(i_batch)
+
+                
+
                 if isnan(total_loss.item()):
                     print('Batch loss is NaN. Breaking')
                     return
@@ -290,8 +302,8 @@ def main(args):
         # Evaluate model on test file if it is time
         if eval_every > 0 and edx % eval_every == 0:
             model.eval()
-            feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
-            #feature = io.imread('PleaseWork.png').astype(np.float32) / 255.
+            #feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
+            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
             feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
             feature = resize(feature)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))

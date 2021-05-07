@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 
+from einops.layers.torch import Rearrange
+
 from vit_pytorch.efficient import ViT as EfficientViT
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
@@ -14,8 +16,8 @@ from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
-from glom_pytorch import Glom
-from model.custom_twins import TwinsSVT
+#from glom_pytorch import Glom
+from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
 from model.torchformer import TorchEncoder
 
@@ -73,10 +75,6 @@ def make_autoencoder(ae_path):
 def make_glom(image_size, patch_size, dim, levels):
     return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True)
 
-def make_twins(dim):
-    #raise ValueError('Holy shit it literally has 251577784 parameters on the SMALL config (and there is a fatal error but those params man...)')
-    return TwinsSVT(out_dims=dim)
-
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
 
@@ -100,7 +98,7 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'twins', 'torch']
+possible_encoders = ['vit', 'cvt', 'nystrom', 'conv', 'style', 'mobilenet', 'glom', 'torch']
 possible_decoders = ['decoder', 'routing', 'linear']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
@@ -136,9 +134,13 @@ class EndToEndModel(nn.Module):
             self.encoder = make_mobilenet(dim)
         elif e_type == 'glom':
             self.glom = True
-            self.encoder = make_glom(image_size, patch_size, dim, 6)
-        elif e_type == 'twins':
-            self.encoder = make_twins(dim)
+            self.encoder = nn.Sequential(
+                make_glom(image_size, patch_size, dim, 6),
+                Rearrange('b p l d -> b l p d'),
+                nn.Conv2d(in_channels = 6, out_channels = 3, kernel_size=3, stride=1, bias=False, padding='same'),
+                nn.Conv2d(in_channels = 3, out_channels = 1, kernel_size=3, stride=1, bias=False, padding='same'),
+            )
+            #self.encoder = make_glom(image_size, patch_size, dim, 6)
         elif e_type == 'torch':
             self.encoder = make_torch(image_size, patch_size, dim, e_depth, e_heads, channels)
         else:
@@ -154,7 +156,6 @@ class EndToEndModel(nn.Module):
 
         
         latent_dim = emb_dim + 4 + 8
-
         
         self.project_in = nn.Linear(in_features=latent_dim, out_features=dim)
         self.pre_out_norm = nn.InstanceNorm1d(num_features=dim)
@@ -184,7 +185,7 @@ class EndToEndModel(nn.Module):
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         if self.glom:
-            context = self.encoder(x)[:,:,-1,:]
+            context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
             context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]
@@ -213,7 +214,7 @@ class EndToEndModel(nn.Module):
     @torch.no_grad()
     def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         if self.glom:
-            context = self.encoder(x, iters=7)[:,:,-1,:]
+            context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
             context = self.encoder(x)
         device = context.device
