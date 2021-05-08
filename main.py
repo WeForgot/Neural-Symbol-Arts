@@ -144,7 +144,8 @@ def main(args):
     optimizer = args.optimizer
     model_scd = None
     if optimizer == 'adam':
-        model_opt = optim.Adam(model.parameters(), lr=1e-1, cycle_momentum=False)       
+        model_opt = optim.Adam(model.parameters(), lr=1e-1)
+        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=len(train_loader)*10)
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
