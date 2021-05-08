@@ -159,7 +159,7 @@ def main(args):
     elif optimizer == 'diffgrad':
         model_opt = optim_addon.DiffGrad(model.parameters(), lr=1e-2, weight_decay=1e-4)
     else:
-        model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5, weight_decay=1e-4)
+        model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-1, step_size_up=len(train_loader)*10, step_size_down=len(train_loader)*10)
     if os.path.exists('{}_optim.pt'.format(name)) and args.load_checkpoint:
         model_opt.load_state_dict(torch.load('{}_optim.pt'.format(name)))
@@ -219,12 +219,11 @@ def main(args):
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                 pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
 
-                layer_loss, color_loss, position_loss, enc_aux, dec_aux = model(feature, pad_label, mask=pad_mask)
+                layer_loss, color_loss, position_loss, dec_aux = model(feature, pad_label, mask=pad_mask)
 
                 total_loss += layer_loss * layer_alpha + \
                               color_loss * color_alpha + \
                               position_loss * position_alpha + \
-                              (enc_aux if enc_aux is not None else 0) + \
                               (dec_aux if dec_aux is not None else 0)
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
@@ -278,7 +277,7 @@ def main(args):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
                 valid_divide_by += len(i_batch)
-                emb_loss, color_loss, pos_loss, enc_aux, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                emb_loss, color_loss, pos_loss, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()

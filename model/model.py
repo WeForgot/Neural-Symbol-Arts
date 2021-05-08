@@ -13,6 +13,7 @@ from model.custom_cvt import CvT
 from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
+from linear_attention_transformer import LinearAttentionTransformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 #from glom_pytorch import Glom
@@ -54,13 +55,14 @@ def make_cvt(dim):
 
 def make_efficient(image_size, patch_size, dim, depth, heads, mlp_dim, channels):
     enc = ViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = mlp_dim, channels = channels,
-                       transformer = RoutingTransformer(
-                           dim = dim,
-                           depth = depth,
-                           heads = heads,
-                           max_seq_len = 576,
-                           ff_glu = True,
-                           use_scale_norm = True))
+                        transformer = LinearAttentionTransformer(
+                            dim = dim,
+                            depth = depth,
+                            max_seq_len = 576,
+                            heads = heads,
+                            ff_glu = True,
+                            
+                        ))
     return enc
 
 def make_style(image_size, patch_size, dim, depth, heads, mlp_dim, num_latents, channels):
@@ -189,10 +191,7 @@ class EndToEndModel(nn.Module):
         if self.glom:
             context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
-            if self.enc_route:
-                context, enc_aux_loss = self.encoder(x)
-            else:
-                context = self.encoder(x)
+            context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]
         feature_mask, label_mask = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
@@ -212,19 +211,16 @@ class EndToEndModel(nn.Module):
         pred_embs = self.to_classes(pred_embs)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
         if return_predictions:
-            return pred_embs, pred_cols, pred_posi, enc_aux_loss
+            return pred_embs, pred_cols, pred_posi
         else:
-            return self.class_loss(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), self.color_loss(pred_cols, label_cols), self.position_loss(pred_posi, label_posi), dec_aux_loss, enc_aux_loss
+            return self.class_loss(pred_embs.transpose(1,2), label_emb.long().squeeze(-1)), self.color_loss(pred_cols, label_cols), self.position_loss(pred_posi, label_posi), dec_aux_loss
     
     @torch.no_grad()
     def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         if self.glom:
             context = self.encoder(x).squeeze(1)#[:,:,-1,:]
         else:
-            if self.enc_route:
-                context, _ = self.encoder(x)
-            else:
-                context = self.encoder(x)
+            context = self.encoder(x)
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
