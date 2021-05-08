@@ -264,7 +264,7 @@ def main(args):
             return
         train_loss_array.append([edx, total_losses, total_losses/train_divide_by, layer_losses, layer_losses/train_divide_by, color_losses, color_losses/train_divide_by, position_losses, position_losses/train_divide_by])
         pd.DataFrame(np.asarray(train_loss_array)).to_csv('{}_train.csv'.format(name), header=['Epoch','Train Total','Train Total Average','Train Layer Total','Train Layer Average','Train Color Total', 'Train Color Average', 'Train Position Total', 'Train Position Average'], index=False)
-        print('TRAINING Epoch #{}\n\tTime spent: {}\n\tTotal Loss: {}\n\tEmbedding Loss: {}\n\tColor Loss: {}\n\tPosition Loss: {}'.format(edx, time.time()-startTime, total_losses, layer_losses, color_losses, position_losses))
+        print('TRAINING Epoch #{}, Time spent: {}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, time.time()-startTime, total_losses/train_divide_by, layer_losses/train_divide_by, color_losses/train_divide_by, position_losses/train_divide_by))
 
         # Prep model for validation
         model.eval()
@@ -283,7 +283,7 @@ def main(args):
                 valid_position_loss += pos_loss.item()
 
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
-        print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss, valid_emb_loss, valid_color_loss, valid_position_loss))
+        print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss/valid_divide_by, valid_emb_loss/valid_divide_by, valid_color_loss/valid_divide_by, valid_position_loss/valid_divide_by))
         valid_loss_array.append([edx, total_loss, total_loss/valid_divide_by, valid_emb_loss, valid_emb_loss/valid_divide_by, valid_color_loss, valid_color_loss/valid_divide_by, valid_position_loss, valid_position_loss/valid_divide_by])
         pd.DataFrame(np.asarray(valid_loss_array)).to_csv('{}_valid.csv'.format(name), header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
         print('------------------------------------------------------------------------------------------------')
