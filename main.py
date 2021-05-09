@@ -135,17 +135,6 @@ def main(args):
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
-    '''
-    if torch.cuda.device_count() > 1:
-        print('Using {} GPU configuration'.format(torch.cuda.device_count()))
-        model = nn.DataParallel(model)
-        model.to(device)
-    else:
-        if torch.cuda.device_count() == 1:
-            print('Cannot use multi-GPU with only a single GPU')
-        else:
-            print('Cannot use multi-GPU with a CPU model')
-    '''
     
     dataset = SADataset(data)
     valid_size = int(len(dataset) * valid_split)
