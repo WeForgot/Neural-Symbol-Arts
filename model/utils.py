@@ -106,13 +106,12 @@ def load_saml(filepath, weights):
         mask[ldx] = 1
     return saml, mask
 
-def convert_numpy_to_saml(source_path, vocab, dest_path=None, name='Test', values_clamped=False):
+def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamped=False):
     if dest_path is None:
-        dest_path = source_path[:-3] + 'saml'
+        dest_path = name + 'saml'
     
     with open(dest_path, 'w') as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n')
-        data = np.load(source_path)
         saml_lines = []
         for line in data:
             if vocab[int(line[0])] == '<SOS>' or vocab[int(line[0])] == '<PAD>':

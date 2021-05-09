@@ -78,6 +78,7 @@ def main(args):
                             use_activations=metadata['use_activations']).to(device)
         model.load_state_dict(torch.load('{}.pt'.format(name)))
         epoch = metadata['epoch']
+        cur_patience = metadata['patience']
         train_loss_array = metadata['train']
         valid_loss_array = metadata['valid']
         
@@ -106,6 +107,7 @@ def main(args):
         torch.save(model.state_dict(), '{}.pt'.format(name))
         metadata = {
             'epoch': 0,
+            'patience': 0,
             'e_type': args.e_type,
             'd_type': args.d_type,
             'vocab_len': len(vocab),
@@ -124,6 +126,7 @@ def main(args):
             'use_activations': args.activations
         }
         epoch = 0
+        cur_patience = 0
         train_loss_array = []
         valid_loss_array = []
         with open('{}.json'.format(name), 'w') as f:
@@ -132,6 +135,14 @@ def main(args):
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
+
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+    else:
+        if torch.cuda.device_count() == 1:
+            print('Cannot use multi-GPU with only a single GPU')
+        else:
+            print('Cannot use multi-GPU with a CPU model')
     
     dataset = SADataset(data)
     valid_size = int(len(dataset) * valid_split)
@@ -170,7 +181,6 @@ def main(args):
     EOS_token = vocab['<EOS>']
     best_loss = None
     best_model = None
-    cur_patience = 0
     print('Training start. Starting at epoch {}'.format(epoch))
     for edx in range(epoch, max_epochs):
         # Unfreeze embeddings if it is time for that
@@ -294,6 +304,7 @@ def main(args):
         torch.save(model.state_dict(), '{}.pt'.format(name))
         torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
         metadata['epoch'] += 1
+        metadata['patience'] = cur_patience
         metadata['train'] = train_loss_array
         metadata['valid'] = valid_loss_array
         with open('{}.json'.format(name), 'w') as f:
@@ -316,8 +327,7 @@ def main(args):
             feature = resize(feature)
             generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))
             dest_name = '{}_{}'.format(name, edx)
-            np.save('test.npy', generated)
-            convert_numpy_to_saml('test.npy', vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
+            convert_numpy_to_saml(generated, vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
         
         # Break if the progress has gone stale
         if cur_patience > max_patience:
