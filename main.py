@@ -23,6 +23,7 @@ import torch_optimizer as optim_addon
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import pandas as pd
+from tqdm import tqdm
 
 from model.model import EndToEndModel
 from model.datasets import SADataset
@@ -276,7 +277,7 @@ def main(args):
         valid_color_loss = 0
         valid_position_loss = 0
         valid_divide_by = 0
-        for bdx, i_batch in enumerate(valid_loader):
+        for bdx, i_batch in enumerate(tqdm(valid_loader, desc='Validation batch', leave=False)):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
                 valid_divide_by += len(i_batch)

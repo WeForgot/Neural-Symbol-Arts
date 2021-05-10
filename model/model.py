@@ -223,40 +223,42 @@ class EndToEndModel(nn.Module):
     @torch.no_grad()
     def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         if self.glom:
-            context = self.encoder(x).squeeze(1)#[:,:,-1,:]
+            context = self.encoder(x).squeeze(1)
         else:
             context = self.encoder(x)
         device = context.device
-        out = [[vocab['<SOS>']] + [0] * 12]
+        out = torch.zeros((1,256,13))
+        mask = torch.zeros((1,256)).bool()
+        out[0,0,0] = vocab['<SOS>']
+        mask[0,0] = True
+        out[:,1:,0] = vocab['<PAD>']
         eos_token = vocab['<EOS>']
-        mask = [True]
-        
-        while len(out) <= max_len:
-            x = torch.unsqueeze(torch.from_numpy(np.asarray(out, dtype=np.float32)), dim=0).to(device)
-            out_mask = torch.unsqueeze(torch.from_numpy(np.asarray(mask, dtype=np.bool)), dim=0).to(device)
-            feature_emb, feature_met = torch.split(x, [1, x.shape[-1] - 1], dim=-1)
-            embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
-            embs = self.emb_dropout(embs)
-            y = torch.cat([embs, feature_met], dim=-1)
-            y = self.project_in(y)
+        out_length = 0
+        for idx in range(1, max_len+1):
+            embs, other = torch.split(out, [1,12], dim=-1)
+            embs = self.embedding_dim(embs.int().to(device)).squeeze(2)
+            x = torch.cat([embs, other.to(device)], dim=-1)
+            x = self.project_in(x)
             if self.dec_route:
-                x, _ = self.decoder(y, context=context, mask=out_mask)
+                x, _ = self.decoder(x, context=context, mask=mask)
             else:
-                x = self.decoder(y, context=context, mask=out_mask)
+                x = self.decoder(x, context=context, mask=mask)
             x = self.pre_out_norm(x)
             x = self.project_out(x)
             out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
             out_embs = self.to_classes(out_embs)
             out_colors, out_positions = self.color_activation(out_colors), self.position_activation(out_positions)
-            out_embs, out_colors, out_positions = out_embs[:,-1:,:], out_colors[:,-1:,:], out_positions[:,-1:,:]
-            out_embs = out_embs.squeeze(0)
+            out_embs, out_colors, out_positions = out_embs[:,-1,:], out_colors[:,-1,:], out_positions[:,-1,:]
             filtered_logits = filter_logits_fn(out_embs, thres = p)
             probs = F.softmax(filtered_logits / temperature, dim = -1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
-            out.append([emb_idx] + list(map(float, out_colors.squeeze().tolist())) + list(map(float, out_positions.squeeze().tolist())))
-            mask.append(True)
+            colors = list(map(float, out_colors.squeeze().tolist()))
+            positions = list(map(float, out_positions.squeeze().tolist()))
+            out[0,idx] = torch.tensor([emb_idx] + colors + positions)
+            mask[0,idx] = True
+            out_length = idx
             if emb_idx == eos_token:
                 break
-        out = out[1:]
-        return np.asarray(out)
+        out = out.squeeze(0).detach().numpy()[1:out_length]
+        return out
