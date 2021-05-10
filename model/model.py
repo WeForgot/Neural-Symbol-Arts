@@ -163,18 +163,19 @@ class EndToEndModel(nn.Module):
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
 
         
-        latent_dim = emb_dim + 4 + 8
+        self.latent_pre_dim = emb_dim + 4 + 8
+        self.latent_post_dim = layer_count + 4 + 8
         
-        self.project_in = nn.Linear(in_features=latent_dim, out_features=dim)
+        self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim)
         self.pre_out_norm = nn.InstanceNorm1d(num_features=dim)
-        self.project_out = nn.Linear(in_features=dim, out_features=latent_dim)
+        self.project_out = nn.Linear(in_features=dim, out_features=self.latent_post_dim)
 
-        self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
-            FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
-            nn.LayerNorm(emb_dim),
-            nn.Dropout(p=0.1),
-            nn.Linear(in_features=emb_dim, out_features=layer_count)
-        )
+        #self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
+        #    FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
+        #    nn.LayerNorm(emb_dim),
+        #    nn.Dropout(p=0.1),
+        #    nn.Linear(in_features=emb_dim, out_features=layer_count)
+        #)
 
         self.color_activation = nn.Sigmoid() if use_activations else nn.Identity()
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
@@ -212,8 +213,8 @@ class EndToEndModel(nn.Module):
             x = self.decoder(y, context=context, mask=feature_mask)
         x = self.pre_out_norm(x)
         x = self.project_out(x)
-        pred_embs, pred_cols, pred_posi = torch.split(x, [embs.shape[-1],4,8], dim=-1)
-        pred_embs = self.to_classes(pred_embs)
+        pred_embs, pred_cols, pred_posi = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
+        #pred_embs = self.to_classes(pred_embs)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
         if return_predictions:
             return pred_embs, pred_cols, pred_posi
@@ -227,8 +228,8 @@ class EndToEndModel(nn.Module):
         else:
             context = self.encoder(x)
         device = context.device
-        out = torch.zeros((1,256,13))
-        mask = torch.zeros((1,256)).bool()
+        out = torch.zeros((1,256,13)).to(device)
+        mask = torch.zeros((1,256)).bool().to(device)
         out[0,0,0] = vocab['<SOS>']
         mask[0,0] = True
         out[:,1:,0] = vocab['<PAD>']
@@ -245,8 +246,9 @@ class EndToEndModel(nn.Module):
                 x = self.decoder(x, context=context, mask=mask)
             x = self.pre_out_norm(x)
             x = self.project_out(x)
-            out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
-            out_embs = self.to_classes(out_embs)
+            out_embs, out_colors, out_positions = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
+            #out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
+            #out_embs = self.to_classes(out_embs)
             out_colors, out_positions = self.color_activation(out_colors), self.position_activation(out_positions)
             out_embs, out_colors, out_positions = out_embs[:,-1,:], out_colors[:,-1,:], out_positions[:,-1,:]
             filtered_logits = filter_logits_fn(out_embs, thres = p)
@@ -260,5 +262,5 @@ class EndToEndModel(nn.Module):
             out_length = idx
             if emb_idx == eos_token:
                 break
-        out = out.squeeze(0).detach().numpy()[1:out_length]
+        out = out.squeeze(0).cpu().numpy()[1:out_length]
         return out

@@ -2,6 +2,7 @@ import os
 import glob
 import lxml.etree as ET
 import xml.etree.ElementTree as ETO
+from typing import Union, List, Tuple
 
 import numpy as np
 import torch
@@ -69,7 +70,7 @@ def load_weights(weight_fp, names_fp):
     return file_to_weight
 
 
-def load_saml(filepath, weights):
+def load_saml(filepath, weights) -> Tuple[np.ndarray, np.ndarray]:
     with open(filepath, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
@@ -106,7 +107,7 @@ def load_saml(filepath, weights):
         mask[ldx] = 1
     return saml, mask
 
-def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamped=False):
+def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamped=False) -> None:
     if dest_path is None:
         dest_path = name + 'saml'
     
@@ -155,8 +156,8 @@ def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamp
 # Remember that SAML layer type values need to add 1 to them to get the cooresponding layer name
 class Vocabulary(object):
     def __init__(self):
-        self.layer_to_idx = {'<SOS>': 0, '<EOS>': 1, '<PAD>': 2}
-        self.idx_to_layer = {0: '<SOS>', 1: '<EOS>', 2: '<PAD>'}
+        self.layer_to_idx = {'<PAD>': 0, '<SOS>': 1, '<EOS>': 2}
+        self.idx_to_layer = {0: '<PAD>', 1: '<SOS>', 2: '<EOS>'}
     
     def load_layers(self, layer_path: str) -> None:
         imgs = glob.glob(os.path.join(layer_path, '[0-9]*.png'))
@@ -166,7 +167,7 @@ class Vocabulary(object):
             self.layer_to_idx[idx] = cur_len
             self.idx_to_layer[cur_len] = idx
     
-    def remove_item(self, idx):
+    def remove_item(self, idx) -> None:
         if isinstance(idx, int):
             delstr = self.idx_to_layer[idx]
             del self.idx_to_layer[idx]
@@ -282,7 +283,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
 
 # 386 layers + start token + pad token = 388 vocab size
-def load_data(should_reverse=False, clamp_values=False):
+def load_data(should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
     #vocab.load_layers(os.path.join('.','data','Layers'))
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
@@ -298,10 +299,10 @@ def load_data(should_reverse=False, clamp_values=False):
 
 # Loss scaling functions
 
-def linear_decay(min_val, max_val, max_t, t):
+def linear_decay(min_val, max_val, max_t, t) -> float:
     return min_val + (max_val - min_val) / (max_t - t) if t < max_t else max_val
 
-def piecewise_decay(time_val_pairings, t):
+def piecewise_decay(time_val_pairings, t) -> float:
     vals_sorted = sorted(time_val_pairings, key=lambda x: x[0])
     if len(vals_sorted) == 1:
         return vals_sorted[0][1]
