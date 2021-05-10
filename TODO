@@ -3,22 +3,22 @@ salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 -
 
 Efficient/Routing:
     Sad:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=8 --mlp_dim=8 --emb_dim=8 --e_type=efficient --e_depth=1 --e_heads=8 --d_type=routing --d_depth=2 --d_heads=8 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=sad --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=8 --mlp_dim=8 --emb_dim=8 --e_type=vit --e_depth=1 --e_heads=8 --d_type=decoder --d_depth=2 --d_heads=8 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=sad --fast_train=True --optimizer=adam --activations=True
 
     Small:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=16 --mlp_dim=16 --emb_dim=8 --e_type=efficient --e_depth=2 --e_heads=8 --d_type=routing --d_depth=2 --d_heads=16 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=16 --mlp_dim=16 --emb_dim=8 --e_type=vit --e_depth=2 --e_heads=8 --d_type=decoder --d_depth=2 --d_heads=16 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
 
     Medium:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=16 --mlp_dim=16 --emb_dim=16 --e_type=efficient --e_depth=2 --e_heads=8 --d_type=routing --d_depth=2 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=medium --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=16 --mlp_dim=16 --emb_dim=16 --e_type=vit --e_depth=2 --e_heads=8 --d_type=decoder --d_depth=2 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=medium --fast_train=True --optimizer=adam --activations=True
 
     Large:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=efficient --e_depth=4 --e_heads=16 --d_type=routing --d_depth=6 --d_heads=16 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=large --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=vit --e_depth=4 --e_heads=16 --d_type=decoder --d_depth=6 --d_heads=16 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=large --fast_train=True --optimizer=adam --activations=True
 
     XL:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=64 --mlp_dim=64 --emb_dim=32 --e_type=efficient --e_depth=6 --e_heads=32 --d_type=routing --d_depth=12 --d_heads=32 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=xl --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=64 --mlp_dim=64 --emb_dim=32 --e_type=vit --e_depth=6 --e_heads=32 --d_type=decoder --d_depth=12 --d_heads=32 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=xl --fast_train=True --optimizer=adam --activations=True
 
     Grotesque:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=512 --mlp_dim=512 --emb_dim=32 --e_type=efficient --e_depth=6 --e_heads=32 --d_type=routing --d_depth=12 --d_heads=32 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=grotesue --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=512 --mlp_dim=512 --emb_dim=32 --e_type=vit --e_depth=6 --e_heads=32 --d_type=decoder --d_depth=12 --d_heads=32 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=grotesue --fast_train=True --optimizer=adam --activations=True
 
     Obsurd:
-    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=1024 --mlp_dim=1024 --emb_dim=64 --e_type=efficient --e_depth=12 --e_heads=32 --d_type=routing --d_depth=16 --d_heads=64 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=obsurd --fast_train=True --optimizer=adam --activations=True
+    python main.py --epochs 1000 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=1024 --mlp_dim=1024 --emb_dim=64 --e_type=vit --e_depth=12 --e_heads=32 --d_type=decoder --d_depth=16 --d_heads=64 --patch_size=8 --valid_split=0.2 --accumulate_gradient=8 --name=obsurd --fast_train=True --optimizer=adam --activations=True
