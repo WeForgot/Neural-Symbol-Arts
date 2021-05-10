@@ -14,6 +14,7 @@ from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from linear_attention_transformer import LinearAttentionTransformer
+from reformer_pytorch import Reformer
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 #from glom_pytorch import Glom
@@ -82,6 +83,8 @@ def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb,
 def make_routing(dim, depth, heads):
     return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True)
 
+def make_reformer(dim, depth, heads):
+    return Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True)
 
 def make_conv(dim, patch_size, channels):
     return SimpleConv(dim, blocks = 3, channels = channels)
@@ -100,7 +103,7 @@ def make_mobilenet(dim):
 
 
 possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch']
-possible_decoders = ['decoder', 'routing', 'linear']
+possible_decoders = ['decoder', 'routing', 'linear', 'reformer']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
@@ -150,10 +153,12 @@ class EndToEndModel(nn.Module):
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
         if d_type == 'decoder':
-            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = int(dim/2), use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb, attn_talking_heads = attn_talking_heads)
+            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = d_heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb, attn_talking_heads = attn_talking_heads)
         elif d_type == 'routing':
             self.dec_route = True
-            self.decoder = make_routing(dim = dim, depth = d_depth, heads = int(dim/2))
+            self.decoder = make_routing(dim = dim, depth = d_depth, heads = d_heads)
+        elif d_type == 'reformer':
+            self.decoder = make_reformer(dim = dim, depth = d_depth, heads = d_heads)
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
 

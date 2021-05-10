@@ -90,7 +90,7 @@ class FCModel(nn.Module):
         self.a_axial4 = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model = dim, nhead = 8, activation='gelu'
-            ), num_layers=1
+            ), num_layers=3
         )
 
 
@@ -120,7 +120,6 @@ class FCModel(nn.Module):
         out = torch.cat([x,y,z], dim=-1)
         out = self.axial4(out)
         out = self.a_axial4(out)
-        out = self.embedding(out)
         return out
 
 class SimpleConv(nn.Module):

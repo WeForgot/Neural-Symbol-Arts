@@ -280,7 +280,9 @@ def main(args):
             feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             for ldx in range(2, label.shape[1]):
                 valid_divide_by += len(i_batch)
-                emb_loss, color_loss, pos_loss, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
+                pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
+                emb_loss, color_loss, pos_loss, dec_aux = model(feature, pad_label, mask=pad_mask)
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
