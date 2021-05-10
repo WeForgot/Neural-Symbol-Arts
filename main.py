@@ -46,7 +46,7 @@ def main(args):
     fast_train = args.fast_train
 
     target_length = 225
-    data_clamped = use_activations # CHANGE THIS IF IT DOESN'T WORK TODO PLEASE PLEASE
+    data_clamped = use_activations
     reverse_data = False
 
 
@@ -205,9 +205,9 @@ def main(args):
             cur_grad = 0
 
             current_time_scaled = edx + (bdx/len(train_loader))
-            layer_alpha = linear_decay(0.5, 2, 100, current_time_scaled)
-            color_alpha = linear_decay(2, 1, 100, current_time_scaled)
-            position_alpha = linear_decay(1.5, 1, 100, current_time_scaled)
+            layer_alpha = 1#linear_decay(0.5, 2, 100, current_time_scaled)
+            color_alpha = 1#linear_decay(2, 1, 100, current_time_scaled)
+            position_alpha = 1#linear_decay(1.5, 1, 100, current_time_scaled)
 
             
 

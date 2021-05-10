@@ -241,7 +241,7 @@ class EndToEndModel(nn.Module):
             x = torch.cat([embs, other.to(device)], dim=-1)
             x = self.project_in(x)
             if self.dec_route:
-                x, _ = self.decoder(x, context=context, mask=mask)
+                x, _ = self.decoder(x, context=context, input_mask=mask)
             else:
                 x = self.decoder(x, context=context, mask=mask)
             x = self.pre_out_norm(x)
