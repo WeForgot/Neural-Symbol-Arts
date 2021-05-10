@@ -230,9 +230,9 @@ class EndToEndModel(nn.Module):
         device = context.device
         out = torch.zeros((1,256,13)).to(device)
         mask = torch.zeros((1,256)).bool().to(device)
+        out[:,:,0] = vocab['<PAD>']
         out[0,0,0] = vocab['<SOS>']
         mask[0,0] = True
-        out[:,1:,0] = vocab['<PAD>']
         eos_token = vocab['<EOS>']
         out_length = 0
         for idx in range(1, max_len+1):
@@ -243,12 +243,10 @@ class EndToEndModel(nn.Module):
             if self.dec_route:
                 x, _ = self.decoder(x, context=context, input_mask=mask)
             else:
-                x = self.decoder(x, context=context, mask=mask)
+                x = self.decoder(x, context=context, mask=mask, input_mask=mask)
             x = self.pre_out_norm(x)
             x = self.project_out(x)
             out_embs, out_colors, out_positions = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
-            #out_embs, out_colors, out_positions = torch.split(x, [embs.shape[-1],4,8], dim=-1)
-            #out_embs = self.to_classes(out_embs)
             out_colors, out_positions = self.color_activation(out_colors), self.position_activation(out_positions)
             out_embs, out_colors, out_positions = out_embs[:,-1,:], out_colors[:,-1,:], out_positions[:,-1,:]
             filtered_logits = filter_logits_fn(out_embs, thres = p)

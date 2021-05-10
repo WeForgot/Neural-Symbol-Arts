@@ -143,7 +143,7 @@ def main(args):
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
     resize = transforms.Resize((192,192))
-    label_len = dataset[0]['label'].shape[1]
+    label_len = 227#dataset[0]['label'].shape[1]
 
     optimizer = args.optimizer
     model_scd = None
