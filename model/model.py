@@ -180,7 +180,9 @@ class EndToEndModel(nn.Module):
         self.color_activation = nn.Sigmoid() if use_activations else nn.Identity()
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
         
-        self.class_loss = nn.CrossEntropyLoss()
+        class_weights = torch.ones((layer_count,), dtype=torch.float32)
+        class_weights[0] = 0
+        self.class_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.color_loss = nn.SmoothL1Loss()
         self.position_loss = nn.SmoothL1Loss()
     
