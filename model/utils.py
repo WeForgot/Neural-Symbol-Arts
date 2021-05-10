@@ -282,10 +282,8 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         saml_mask.append(False)
     return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
 
-# 386 layers + start token + pad token = 388 vocab size
 def load_data(should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
-    #vocab.load_layers(os.path.join('.','data','Layers'))
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
     all_samls = glob.glob(os.path.join('data','BetterSymbolArts','processed','*.saml'))
     data = []

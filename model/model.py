@@ -243,7 +243,10 @@ class EndToEndModel(nn.Module):
             if self.dec_route:
                 x, _ = self.decoder(x, context=context, input_mask=mask)
             else:
-                x = self.decoder(x, context=context, mask=mask, input_mask=mask)
+                if isinstance(self.decoder, ContinuousTransformerWrapper):
+                    x = self.decoder(x, context=context, mask=mask)
+                else:
+                    x = self.decoder(x, context=context, input_mask=mask)
             x = self.pre_out_norm(x)
             x = self.project_out(x)
             out_embs, out_colors, out_positions = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
