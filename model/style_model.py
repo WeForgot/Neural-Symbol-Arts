@@ -44,8 +44,7 @@ class StyleViT(nn.Module):
         assert pool in {'cls', 'mean'}, 'Pool type must be either cls (token) or mean'
         self.to_patch = Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size)
         self.patch_emb = nn.Linear(patch_dim, dim)
-        self.pos_embedding = AxialPositionalEmbedding(dim, (4, 4))
-        #self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+1, dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
         self.dropout = nn.Dropout(emb_dropout)
         self.style_convs = nn.ModuleList([
             nn.ModuleList([
@@ -55,7 +54,6 @@ class StyleViT(nn.Module):
             ]) for _ in range(depth)
         ])
         self.transformer = StyleFormer(dim, depth, heads, dim_head, mlp_dim, dropout)
-        self.pool = pool
         self.to_latent = nn.Identity()
     
     def forward(self, img):
@@ -64,7 +62,7 @@ class StyleViT(nn.Module):
         x = self.to_patch(img)
         x = self.patch_emb(x)
         b, n, _ = x.shape
-        x += self.pos_embedding(x)
+        x += self.pos_embedding[:,:n]
         x = self.dropout(x)
         z = img
         for conv, proj, style in self.style_convs:
@@ -72,7 +70,6 @@ class StyleViT(nn.Module):
             y = self.to_patch(z)
             y = proj(y)
             y = style(y)
-            y = torch.cat((torch.zeros_like(cls_tokens), y), dim=1)
             styles.append(y)
         x = self.transformer(x, styles)
         return self.to_latent(x)

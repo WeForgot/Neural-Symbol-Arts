@@ -148,8 +148,7 @@ def main(args):
     optimizer = args.optimizer
     model_scd = None
     if optimizer == 'adam':
-        model_opt = optim.Adam(model.parameters(), lr=1e-1)
-        model_scd = optim.lr_scheduler.CosineAnnealingWarmRestarts(model_opt, T_0=len(train_loader)*10)
+        model_opt = optim.Adam(model.parameters(), lr=1e-3)
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
@@ -220,10 +219,8 @@ def main(args):
                     random.shuffle(ldxs)
 
                 ldx = ldxs.pop(0)
-                pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
-                pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
 
-                layer_loss, color_loss, position_loss, dec_aux = model(feature, pad_label, mask=pad_mask)
+                layer_loss, color_loss, position_loss, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
 
                 total_loss += layer_loss * layer_alpha + \
                               color_loss * color_alpha + \
@@ -263,6 +260,7 @@ def main(args):
                 model_scd.step()
             if batch_metrics:
                 print('\tBatch #{}, Total Loss: {}, Layer Loss: {}, Color Loss: {}, Position Loss: {}'.format(bdx, batch_layer+batch_color+batch_position, batch_layer, batch_color, batch_position))
+
         if isnan(total_losses):
             print('Loss is NaN. Returning')
             return
@@ -287,6 +285,7 @@ def main(args):
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()
+
 
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
         print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss/valid_divide_by, valid_emb_loss/valid_divide_by, valid_color_loss/valid_divide_by, valid_position_loss/valid_divide_by))

@@ -13,14 +13,16 @@ from model.custom_cvt import CvT
 from vit_pytorch.rvt import RvT
 from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
+from routing_transformer import Autopadder as RoutingAutopadder
 from linear_attention_transformer import LinearAttentionTransformer
 from reformer_pytorch import Reformer
+from reformer_pytorch import Autopadder as ReformerAutopadder
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 #from glom_pytorch import Glom
 from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
-from model.torchformer import TorchEncoder
+from model.torchformer import TorchEncoder, TorchDecoder
 
 from x_transformers import ContinuousTransformerWrapper, Decoder
 from x_transformers.x_transformers import FeedForward
@@ -81,17 +83,20 @@ def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb,
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
-    return RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True)
+    return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True))
 
 def make_reformer(dim, depth, heads):
-    return Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True)
+    return ReformerAutoPadder(Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True))
 
 def make_conv(dim, patch_size, channels):
     return SimpleConv(dim, blocks = 3, channels = channels)
     #return FCModel(dim, patch_size, channels=channels)
 
-def make_torch(image_size, patch_size, dim, depth, heads, channels):
+def make_torch_enc(image_size, patch_size, dim, depth, heads, channels):
     return TorchEncoder(image_size, patch_size, dim, depth, heads, channels)
+
+def make_torch_dec(dim, depth, heads):
+    return TorchDecoder(dim, depth, heads)
 
 def make_mobilenet(dim):
     model = models.mobilenet_v3_small()
@@ -103,7 +108,7 @@ def make_mobilenet(dim):
 
 
 possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch']
-possible_decoders = ['decoder', 'routing', 'linear', 'reformer']
+possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
@@ -148,7 +153,7 @@ class EndToEndModel(nn.Module):
             )
             #self.encoder = make_glom(image_size, patch_size, dim, 6)
         elif e_type == 'torch':
-            self.encoder = make_torch(image_size, patch_size, dim, e_depth, e_heads, channels)
+            self.encoder = make_torch_enc(image_size, patch_size, dim, e_depth, e_heads, channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
@@ -159,6 +164,8 @@ class EndToEndModel(nn.Module):
             self.decoder = make_routing(dim = dim, depth = d_depth, heads = d_heads)
         elif d_type == 'reformer':
             self.decoder = make_reformer(dim = dim, depth = d_depth, heads = d_heads)
+        elif d_type == 'torch':
+            self.decoder = make_torch_dec(dim, d_depth, d_heads)
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
 
@@ -168,7 +175,10 @@ class EndToEndModel(nn.Module):
         
         self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim)
         self.pre_out_norm = nn.InstanceNorm1d(num_features=dim)
-        self.project_out = nn.Linear(in_features=dim, out_features=self.latent_post_dim)
+        #self.project_out = nn.Linear(in_features=dim, out_features=self.latent_post_dim)
+        self.to_classes = nn.Linear(in_features=dim, out_features=layer_count, bias=False)
+        self.to_colors = nn.Linear(in_features=dim, out_features=4, bias=False)
+        self.to_positions = nn.Linear(in_features=dim, out_features=8, bias=False)
 
         #self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
         #    FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
@@ -177,14 +187,14 @@ class EndToEndModel(nn.Module):
         #    nn.Linear(in_features=emb_dim, out_features=layer_count)
         #)
 
-        self.color_activation = nn.Sigmoid() if use_activations else nn.Identity()
+        self.color_activation = nn.Sigmoid() if use_activations else nn.ReLU()
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
         
         class_weights = torch.ones((layer_count,), dtype=torch.float32)
         class_weights[0] = 0
         self.class_loss = nn.CrossEntropyLoss(weight=class_weights)
-        self.color_loss = nn.SmoothL1Loss()
-        self.position_loss = nn.SmoothL1Loss()
+        self.color_loss = nn.MSELoss()
+        self.position_loss = nn.MSELoss()
     
     def freeze_embeddings(self, freeze=True):
         self.embedding_dim.weight.requires_grad = not freeze
@@ -197,7 +207,7 @@ class EndToEndModel(nn.Module):
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         enc_aux_loss = None
         if self.glom:
-            context = self.encoder(x).squeeze(1)#[:,:,-1,:]
+            context = self.encoder(x).squeeze(1)
         else:
             context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]
@@ -212,11 +222,11 @@ class EndToEndModel(nn.Module):
         if self.dec_route:
             x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
-            x = self.decoder(y, context=context, mask=feature_mask)
-        x = self.pre_out_norm(x)
-        x = self.project_out(x)
-        pred_embs, pred_cols, pred_posi = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
-        #pred_embs = self.to_classes(pred_embs)
+            if isinstance(self.decoder, ContinuousTransformerWrapper):
+                x = self.decoder(y, context=context, mask=feature_mask)
+            else:
+                x = self.decoder(y, context=context, input_mask=feature_mask)
+        pred_embs, pred_cols, pred_posi = self.to_classes(x), self.to_colors(x), self.to_positions(x)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
         if return_predictions:
             return pred_embs, pred_cols, pred_posi
@@ -230,40 +240,34 @@ class EndToEndModel(nn.Module):
         else:
             context = self.encoder(x)
         device = context.device
-        out = torch.zeros((1,256,13)).to(device)
-        mask = torch.zeros((1,256)).bool().to(device)
-        out[:,:,0] = vocab['<PAD>']
-        out[0,0,0] = vocab['<SOS>']
-        mask[0,0] = True
-        eos_token = vocab['<EOS>']
-        out_length = 0
-        for idx in range(1, max_len+1):
-            embs, other = torch.split(out, [1,12], dim=-1)
-            embs = self.embedding_dim(embs.int().to(device)).squeeze(2)
-            x = torch.cat([embs, other.to(device)], dim=-1)
+        out = [[vocab['<SOS>']] + [0] * 12]
+        eos = vocab['<EOS>']
+        input_mask = [True]
+        while len(out) < max_len+1:
+            x = torch.tensor(out).unsqueeze(0).to(device)
+            mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
+            emb, other = torch.split(x, [1,12], dim=-1)
+            emb = self.embedding_dim(emb.int()).squeeze(2)
+            x = torch.cat([emb, other.to(device)], dim=-1)
             x = self.project_in(x)
             if self.dec_route:
-                x, _ = self.decoder(x, context=context, input_mask=mask)
+                x, _ = self.decoder(x, context=context, mask=mask)
             else:
-                if isinstance(self.decoder, ContinuousTransformerWrapper):
-                    x = self.decoder(x, context=context, mask=mask)
-                else:
-                    x = self.decoder(x, context=context, input_mask=mask)
-            x = self.pre_out_norm(x)
-            x = self.project_out(x)
-            out_embs, out_colors, out_positions = torch.split(x, [self.embedding_dim.num_embeddings,4,8], dim=-1)
-            out_colors, out_positions = self.color_activation(out_colors), self.position_activation(out_positions)
-            out_embs, out_colors, out_positions = out_embs[:,-1,:], out_colors[:,-1,:], out_positions[:,-1,:]
-            filtered_logits = filter_logits_fn(out_embs, thres = p)
-            probs = F.softmax(filtered_logits / temperature, dim = -1)
+                x = self.decoder(x, context=context, mask=mask)
+            layer_out, color_out, position_out = self.to_classes(x)[:,-1,:], self.to_colors(x)[:,-1,:], self.to_positions(x)[:,-1,:]
+            filtered_logits = filter_logits_fn(layer_out, thres=p)
+            probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
-            colors = list(map(float, out_colors.squeeze().tolist()))
-            positions = list(map(float, out_positions.squeeze().tolist()))
-            out[0,idx] = torch.tensor([emb_idx] + colors + positions)
-            mask[0,idx] = True
-            out_length = idx
-            if emb_idx == eos_token:
+            if emb_idx == eos:
                 break
-        out = out.squeeze(0).cpu().numpy()[1:out_length]
-        return out
+            colors = list(map(float, color_out.squeeze().tolist()))
+            positions = list(map(float, position_out.squeeze().tolist()))
+            out.append([emb_idx] + colors + positions)
+            input_mask.append(True)
+        return np.asarray(out)
+            
+
+
+            
+            
