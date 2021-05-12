@@ -72,6 +72,3 @@ class StyleViT(nn.Module):
             styles.append(y)
         x = self.transformer(x, styles)
         return self.to_latent(x)
-
-if __name__ == '__main__':
-    main()

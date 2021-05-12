@@ -120,7 +120,7 @@ possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = False, rel_pos_bias = False, rotary_pos_emb = False, pretrain_embeddings=None,
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None,
                        use_activations = False):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
