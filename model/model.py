@@ -15,10 +15,12 @@ from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from routing_transformer import Autopadder as RoutingAutopadder
 from linear_attention_transformer import LinearAttentionTransformer
+from linear_attention_transformer.autopadder import Autopadder as LinearAutopadder
 from reformer_pytorch import Reformer
 from reformer_pytorch import Autopadder as ReformerAutopadder
 from model.style_model import StyleViT
 from model.custom_vit import ViT
+from model.custom_perceiver import Perceiver
 #from glom_pytorch import Glom
 from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
@@ -64,7 +66,7 @@ def make_efficient(image_size, patch_size, dim, depth, heads, mlp_dim, channels)
                             max_seq_len = 576,
                             heads = heads,
                             ff_glu = True,
-                            
+                            attend_axially = True
                         ))
     return enc
 
@@ -79,6 +81,9 @@ def make_autoencoder(ae_path):
 def make_glom(image_size, patch_size, dim, levels):
     return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True)
 
+def make_perceiver(input_channels, dim, depth):
+    return Perceiver(input_channels=input_channels, num_freq_bands=6, depth=depth, max_freq=10., latent_dim=dim, num_latents=128)
+
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
 
@@ -86,11 +91,15 @@ def make_routing(dim, depth, heads):
     return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True))
 
 def make_reformer(dim, depth, heads):
-    return ReformerAutoPadder(Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True))
+    return ReformerAutopadder(Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True))
+
+def make_linear(dim, depth, heads):
+    local_heads = int(heads/2)
+    global_heads = heads - local_heads
+    return LinearAutopadder(LinearAttentionTransformer(dim = dim, depth = depth, max_seq_len=256, heads=global_heads, ff_glu=True, causal=True, receives_context=True, n_local_attn_heads=local_heads, local_attn_window_size=32))
 
 def make_conv(dim, patch_size, channels):
-    return SimpleConv(dim, blocks = 3, channels = channels)
-    #return FCModel(dim, patch_size, channels=channels)
+    return SimpleConv(dim, channels = channels)
 
 def make_torch_enc(image_size, patch_size, dim, depth, heads, channels):
     return TorchEncoder(image_size, patch_size, dim, depth, heads, channels)
@@ -100,19 +109,18 @@ def make_torch_dec(dim, depth, heads):
 
 def make_mobilenet(dim):
     model = models.mobilenet_v3_small()
+    model.classifier = nn.Identity()
+    model.avgpool = nn.AdaptiveAvgPool2d((100,dim))
     # MobilenetV3-Small
-    model.classifier = nn.Sequential(
-        nn.Linear(in_features=576, out_features=dim, bias=True),
-    )
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch']
+possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver']
 possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, attn_talking_heads = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None,
+                       num_latents = 2, use_scalenorm = False, rel_pos_bias = False, rotary_pos_emb = False, pretrain_embeddings=None,
                        use_activations = False):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
@@ -154,11 +162,13 @@ class EndToEndModel(nn.Module):
             #self.encoder = make_glom(image_size, patch_size, dim, 6)
         elif e_type == 'torch':
             self.encoder = make_torch_enc(image_size, patch_size, dim, e_depth, e_heads, channels)
+        elif e_type == 'perceiver':
+            self.encoder = make_perceiver(channels, dim, e_depth)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
         if d_type == 'decoder':
-            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = d_heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb, attn_talking_heads = attn_talking_heads)
+            self.decoder = make_decoder(dim = dim, depth = d_depth, heads = d_heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_pos_emb = rotary_pos_emb)
         elif d_type == 'routing':
             self.dec_route = True
             self.decoder = make_routing(dim = dim, depth = d_depth, heads = d_heads)
@@ -166,26 +176,23 @@ class EndToEndModel(nn.Module):
             self.decoder = make_reformer(dim = dim, depth = d_depth, heads = d_heads)
         elif d_type == 'torch':
             self.decoder = make_torch_dec(dim, d_depth, d_heads)
+        elif d_type == 'linear':
+            self.decoder = make_linear(dim, d_depth, d_heads)
         else:
             raise TypeError('{} not among types {}'.format(d_type, possible_decoders))
 
         
         self.latent_pre_dim = emb_dim + 4 + 8
         self.latent_post_dim = layer_count + 4 + 8
+
+        self.post_in_norm = nn.LayerNorm(normalized_shape=dim)
+        self.pre_out_norm = nn.LayerNorm(normalized_shape=dim)
         
-        self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim)
-        self.pre_out_norm = nn.InstanceNorm1d(num_features=dim)
-        #self.project_out = nn.Linear(in_features=dim, out_features=self.latent_post_dim)
+        
+        self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim, bias=False)
         self.to_classes = nn.Linear(in_features=dim, out_features=layer_count, bias=False)
         self.to_colors = nn.Linear(in_features=dim, out_features=4, bias=False)
         self.to_positions = nn.Linear(in_features=dim, out_features=8, bias=False)
-
-        #self.to_classes = nn.Sequential(nn.LayerNorm(emb_dim), nn.Linear(emb_dim, layer_count, bias=False)) if not thicc_ff else nn.Sequential(
-        #    FeedForward(dim=emb_dim, dim_out=emb_dim, glu=True),
-        #    nn.LayerNorm(emb_dim),
-        #    nn.Dropout(p=0.1),
-        #    nn.Linear(in_features=emb_dim, out_features=layer_count)
-        #)
 
         self.color_activation = nn.Sigmoid() if use_activations else nn.ReLU()
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
@@ -205,27 +212,32 @@ class EndToEndModel(nn.Module):
         
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
-        enc_aux_loss = None
         if self.glom:
             context = self.encoder(x).squeeze(1)
+        elif isinstance(self.encoder, Perceiver):
+            context = self.encoder(x.permute(0,2,3,1))
         else:
             context = self.encoder(x)
         features, labels = src[:,:-1,:], src[:,1:,:]
-        feature_mask, label_mask = mask[:,:-1], mask[:,1:]
+        feature_mask, _ = mask[:,:-1], mask[:,1:]
         label_emb, label_cols, label_posi = torch.split(labels, [1,4,8], dim=-1)
         feature_emb, feature_met = torch.split(features, [1, features.shape[-1] - 1], dim=-1)
         embs = self.embedding_dim(feature_emb.int()).squeeze(dim=2)
         embs = self.emb_dropout(embs)
         y = torch.cat([embs, feature_met], dim=-1)
+
         y = self.project_in(y)
+        y = self.post_in_norm(y)
         dec_aux_loss = None
         if self.dec_route:
-            x, aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
+            x, dec_aux_loss = self.decoder(y, context=context, input_mask=feature_mask)
         else:
             if isinstance(self.decoder, ContinuousTransformerWrapper):
                 x = self.decoder(y, context=context, mask=feature_mask)
             else:
                 x = self.decoder(y, context=context, input_mask=feature_mask)
+        
+        x = self.pre_out_norm(x)
         pred_embs, pred_cols, pred_posi = self.to_classes(x), self.to_colors(x), self.to_positions(x)
         pred_cols, pred_posi = self.color_activation(pred_cols), self.position_activation(pred_posi)
         if return_predictions:
@@ -254,7 +266,9 @@ class EndToEndModel(nn.Module):
                 x, _ = self.decoder(x, context=context, mask=mask)
             else:
                 x = self.decoder(x, context=context, mask=mask)
+            x = self.pre_out_norm(x)
             layer_out, color_out, position_out = self.to_classes(x)[:,-1,:], self.to_colors(x)[:,-1,:], self.to_positions(x)[:,-1,:]
+            color_out, position_out = self.color_activation(color_out), self.position_activation(position_out)
             filtered_logits = filter_logits_fn(layer_out, thres=p)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)

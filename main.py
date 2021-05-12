@@ -91,7 +91,7 @@ def main(args):
         if args.load_embeddings != '':
             embs = torch.load(args.load_embeddings)
         model = EndToEndModel(args.e_type, args.d_type, len(vocab),
-                            image_size = 576,
+                            image_size = 224,
                             pretrain_embeddings=embs,
                             patch_size = args.patch_size,
                             dim = args.dim,
@@ -112,7 +112,7 @@ def main(args):
             'e_type': args.e_type,
             'd_type': args.d_type,
             'vocab_len': len(vocab),
-            'image_size': 576,
+            'image_size': 224,
             'patch_size': args.patch_size,
             'dim': args.dim,
             'emb_dim': args.emb_dim if args.load_embeddings == '' else embs.shape[1],
@@ -142,13 +142,13 @@ def main(args):
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
-    resize = transforms.Resize((192,192))
+    resize = transforms.Resize((224,224))
     label_len = 227#dataset[0]['label'].shape[1]
 
     optimizer = args.optimizer
     model_scd = None
     if optimizer == 'adam':
-        model_opt = optim.Adam(model.parameters(), lr=1e-3)
+        model_opt = optim.Adam(model.parameters(), lr=1e-5)
     elif optimizer == 'adamw':
         model_opt = optim.AdamW(model.parameters(), lr=1e-3)
     elif optimizer == 'asgd':
@@ -160,8 +160,8 @@ def main(args):
         model_opt = RangerAdaBelief(model.parameters(), lr=5e-4, betas=(.9,.999), eps=1e-4, weight_decay=1e-4, weight_decouple=True)
     elif optimizer == 'yogi':
         model_opt = optim_addon.Yogi(model.parameters(), lr=1e-2, weight_decay=1e-4)
-    elif optimizer == 'diffgrad':
-        model_opt = optim_addon.DiffGrad(model.parameters(), lr=1e-2, weight_decay=1e-4)
+    elif optimizer == 'adamp':
+        model_opt = optim_addon.AdamP(model.parameters(), lr=1e-3, weight_decay=1e-2)
     else:
         model_opt = optim.SGD(model.parameters(), lr=1e-1, momentum=0.5)
         model_scd = optim.lr_scheduler.CyclicLR(model_opt, base_lr=1e-5, max_lr=1e-1, step_size_up=len(train_loader)*10, step_size_down=len(train_loader)*10)
@@ -280,8 +280,7 @@ def main(args):
             for ldx in range(2, label.shape[1]):
                 valid_divide_by += len(i_batch)
                 pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
-                pad_label[:,:ldx,:], pad_mask[:,:ldx] = label[:,:ldx,:], mask[:,:ldx]
-                emb_loss, color_loss, pos_loss, dec_aux = model(feature, pad_label, mask=pad_mask)
+                emb_loss, color_loss, pos_loss, _ = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                 valid_emb_loss += emb_loss.item()
                 valid_color_loss += color_loss.item()
                 valid_position_loss += pos_loss.item()

@@ -122,35 +122,50 @@ class FCModel(nn.Module):
         out = self.a_axial4(out)
         return out
 
+class ConvBNActivation(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, bias=False):
+        super(ConvBNActivation, self).__init__()
+        if out_channels == None:
+            out_channels = in_channels
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, bias=bias)
+        self.bn1 = nn.BatchNorm2d(num_features=out_channels)
+        self.act1 = nn.Hardswish()
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.act1(x)
+        return x
+
+class SqueezeExcitation(nn.Module):
+    def __init__(self, in_channels, kernel_size=3, squeeze_ratio=4, bias=False):
+        super(SqueezeExcitation, self).__init__()
+        out_channels = int(in_channels/squeeze_ratio)
+        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=bias, padding='same')
+        self.act = nn.ReLU()
+        self.conv2 = nn.Conv2d(in_channels=out_channels, out_channels=in_channels, kernel_size=kernel_size, bias=bias, padding='same')
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.act(x)
+        x = self.conv2(x)
+        return x
+
 class SimpleConv(nn.Module):
-    def __init__(self, dim, depth=2, heads=16, blocks = 4, channels=3, max_filters = 64):
+    def __init__(self, dim, channels=3):
         super(SimpleConv, self).__init__()
-        all_blocks = []
-        cur_filters = 8
-        all_blocks.append(nn.Conv2d(in_channels=channels, out_channels=cur_filters, kernel_size=1, bias=False))
-        all_blocks.append(nn.ReLU())
-        for _ in range(blocks):
-            all_blocks.append(
-                nn.Sequential(
-                    nn.Conv2d(in_channels=cur_filters, out_channels=cur_filters*2, kernel_size=5, stride=3, bias=False),
-                    nn.BatchNorm2d(num_features=cur_filters*2),
-                    nn.ReLU(),
-                    nn.Dropout2d(p=0.2)
-                )
-            )
-            cur_filters *= 2
-            cur_filters = min(max_filters, cur_filters)
-        all_blocks.append(Rearrange('b c h w -> b c (h w)'))
-        all_blocks.append(nn.LazyLinear(out_features=dim, bias=False))
-        #self.transformer = LinearAttentionTransformer(dim = dim, depth = depth, max_seq_len = cur_filters, heads = heads)
-        #all_blocks.append(nn.TransformerEncoder(
-        #    nn.TransformerEncoderLayer(
-        #        d_model = dim, nhead = 16, activation='gelu'
-        #    ), num_layers=3
-        #))
-        self.layers = nn.Sequential(*all_blocks)
+        self.layers = nn.Sequential(
+            ConvBNActivation(in_channels=channels, out_channels=8, kernel_size=5, stride=3),
+            SqueezeExcitation(in_channels=8),
+            ConvBNActivation(in_channels=8, out_channels=16, kernel_size=3, stride=3),
+            SqueezeExcitation(in_channels=16),
+            ConvBNActivation(in_channels=16, out_channels=32, kernel_size=3, stride=3),
+            SqueezeExcitation(in_channels=32),
+            ConvBNActivation(in_channels=32, out_channels=dim, kernel_size=3, stride=3),
+            SqueezeExcitation(in_channels=dim),
+            Rearrange('b c h w -> b (h w) c')
+        )
     
     def forward(self, x):
         x = self.layers(x)
-        #x = self.transformer(x)
         return x

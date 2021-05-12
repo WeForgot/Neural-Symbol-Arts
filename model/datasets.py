@@ -117,7 +117,7 @@ class LayersDataset(Dataset):
         return {'idx': idx, 'path': img_name, 'image': sample}
 
 class SADataset(Dataset):
-    def __init__(self, data, img_size=192):
+    def __init__(self, data, img_size=224):
         self.data = data
         self.rand_max = 227
         #self.cur_rand = random.randint(2, self.rand_max-1)
