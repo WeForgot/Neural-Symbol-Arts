@@ -5,7 +5,7 @@ from torch import nn, einsum
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
-from axial_attention import AxialAttention
+
 # constants
 
 TOKEN_ATTEND_SELF_VALUE = -5e-4
@@ -83,13 +83,15 @@ class Glom(nn.Module):
         image_size = 224,
         patch_size = 14,
         consensus_self = False,
-        local_consensus_radius = 0
+        local_consensus_radius = 0,
+        iters = None
     ):
         super().__init__()
         # bottom level - incoming image, tokenize and add position
         num_patches_side = (image_size // patch_size)
         num_patches =  num_patches_side ** 2
         self.levels = levels
+        self.iters = iters
 
         self.image_to_tokens = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
@@ -107,11 +109,9 @@ class Glom(nn.Module):
         # consensus attention
         self.attention = ConsensusAttention(num_patches_side, attend_self = consensus_self, local_consensus_radius = local_consensus_radius)
 
-        self.out_attention = AxialAttention(dim = dim, num_dimensions=2, heads=8, dim_index=-1, sum_axial_out=True)
-
-    def forward(self, img, iters = None, levels = None, return_all = False):
+    def forward(self, img, iters = None, levels = None):
         b, device = img.shape[0], img.device
-        iters = default(iters, self.levels * 2)   # need to have twice the number of levels of iterations in order for information to propagate up and back down. can be overridden
+        iters = default(self.iters, self.levels * 2)   # need to have twice the number of levels of iterations in order for information to propagate up and back down. can be overridden
 
         tokens = self.image_to_tokens(img)
         n = tokens.shape[1]
@@ -124,8 +124,6 @@ class Glom(nn.Module):
 
         if not exists(levels):
             levels = repeat(self.init_levels, 'l d -> b n l d', b = b, n = n)
-
-        hiddens = [levels]
 
         num_contributions = torch.empty(self.levels, device = device).fill_(4)
         num_contributions[-1] = 3  # top level does not get a top-down contribution, so have to account for this when doing the weighted mean
@@ -144,11 +142,5 @@ class Glom(nn.Module):
             levels_mean = levels_sum / rearrange(num_contributions, 'l -> () () l ()')
 
             levels = levels_mean  # set for next iteration
-            hiddens.append(levels)
-        
 
-        if return_all:
-            return torch.stack(hiddens)  # return (time step, batch, num columns, levels, dimension)
-
-        levels = self.out_attention(levels)
         return levels

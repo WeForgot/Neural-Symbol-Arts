@@ -139,9 +139,9 @@ def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamp
             color_tup = [int(x * 255) for x in line[1:4]] if values_clamped else [int(x) for x in line[1:4]]
             color_tup = rgb_to_hex(color_tup)
             layer.set('color', str(color_tup))
-            alpha_val = str(max(1, int(line[4]*255))) if values_clamped else str(int(line[4]))
+            alpha_val = str(max(1, int((line[4]*255)+1))) if values_clamped else str(int(line[4]))
             layer.set('alpha', alpha_val)
-            positions = list(map(lambda x: str(int(x * 127)), line[5:])) if values_clamped else list(map(lambda x: str(int(x)), line[5:]))
+            positions = list(map(lambda x: str(int(((x * 254.0) - 127.0))), line[5:])) if values_clamped else list(map(lambda x: str(int(x)), line[5:]))
             layer.set('ltx', positions[0])
             layer.set('lty', positions[1])
             layer.set('lbx', positions[2])
@@ -229,7 +229,7 @@ def clamp_array(arr):
     assert len(arr) == 13, 'Layer array must be of length 13'
     #assert type(arr[0]) == np.float32, 'Array values must all be of type float'
     arr[1:5] = [(x - 1.0) / 255.0 for x in arr[1:5]]
-    arr[5:] = [x/127.0 for x in arr[5:]]
+    arr[5:] = [(x + 127.0)/254.0 for x in arr[5:]]
     return arr
 
 

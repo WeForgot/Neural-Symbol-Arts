@@ -26,7 +26,7 @@ from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
 from model.torchformer import TorchEncoder, TorchDecoder
 
-from x_transformers import ContinuousTransformerWrapper, Decoder
+from x_transformers import ContinuousTransformerWrapper, Decoder, Encoder, ViTransformerWrapper
 from x_transformers.x_transformers import FeedForward
 from axial_positional_embedding import AxialPositionalEmbedding
 
@@ -78,8 +78,8 @@ def make_autoencoder(ae_path):
     enc = torch.load(ae_path)
     return enc
 
-def make_glom(image_size, patch_size, dim, levels):
-    return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True)
+def make_glom(image_size, patch_size, dim, levels, iters):
+    return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True, iters=iters)
 
 def make_perceiver(input_channels, dim, depth):
     return Perceiver(input_channels=input_channels, num_freq_bands=6, depth=depth, max_freq=10., latent_dim=dim, num_latents=128)
@@ -115,13 +115,13 @@ def make_mobilenet(dim):
     return model
 
 
-possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver']
+possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder']
 possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
                        dim = 32, emb_dim = 4, e_depth = 1, e_heads = 8, d_depth = 1, d_heads = 8, mlp_dim = 32,
-                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, emb_drop = 0.1, thicc_ff=False, pretrain_embeddings=None,
-                       use_activations = False):
+                       num_latents = 2, use_scalenorm = True, rel_pos_bias = False, rotary_pos_emb = True, pretrain_embeddings=None,
+                       use_activations = False, **kwarg):
         super().__init__()
         assert e_type in possible_encoders, 'Please select an encoder from {}'.format(possible_encoders)
         assert d_type in possible_decoders, 'Please select a decoder from {}'.format(possible_decoders)
@@ -153,13 +153,16 @@ class EndToEndModel(nn.Module):
             self.encoder = make_mobilenet(dim)
         elif e_type == 'glom':
             self.glom = True
+
+            # In case I want to make an argument for this at some point
+            levels = 6
+            prop_mult = max(2, 2) 
+
             self.encoder = nn.Sequential(
-                make_glom(image_size, patch_size, dim, 6),
-                Rearrange('b p l d -> b l p d'),
-                nn.Conv2d(in_channels = 6, out_channels = 3, kernel_size=3, stride=1, bias=False, padding='same'),
-                nn.Conv2d(in_channels = 3, out_channels = 1, kernel_size=3, stride=1, bias=False, padding='same'),
+                make_glom(image_size, patch_size, dim, levels, levels * prop_mult),
+                Rearrange('b p l d -> b (p l) d'),
             )
-            #self.encoder = make_glom(image_size, patch_size, dim, 6)
+            #self.encoder = make_glom(image_size, patch_size, dim, 3)
         elif e_type == 'torch':
             self.encoder = make_torch_enc(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'perceiver':
@@ -194,8 +197,8 @@ class EndToEndModel(nn.Module):
         self.to_colors = nn.Linear(in_features=dim, out_features=4, bias=False)
         self.to_positions = nn.Linear(in_features=dim, out_features=8, bias=False)
 
-        self.color_activation = nn.Sigmoid() if use_activations else nn.ReLU()
-        self.position_activation = nn.Tanh() if use_activations else nn.Identity()
+        self.color_activation = nn.GELU() if use_activations else nn.Identity()
+        self.position_activation = nn.GELU() if use_activations else nn.Identity()
         
         class_weights = torch.ones((layer_count,), dtype=torch.float32)
         class_weights[0] = 0
@@ -213,7 +216,7 @@ class EndToEndModel(nn.Module):
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
         if self.glom:
-            context = self.encoder(x).squeeze(1)
+            context = self.encoder(x)
         elif isinstance(self.encoder, Perceiver):
             context = self.encoder(x.permute(0,2,3,1))
         else:
