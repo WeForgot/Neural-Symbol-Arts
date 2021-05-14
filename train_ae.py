@@ -1,16 +1,20 @@
 import pickle
 
+import numpy as np
+import skimage.io as io
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-
-from model.autoencoder import Autoencoder
+from torchvision.transforms import Resize
+from torchvision.utils import save_image
 from model.datasets import SADataset
-from model.utils import get_parameter_count
+from model.utils import get_parameter_count, load_data
+from model.vae import VanillaVAE, BetaVAE
+from model.autoencoder import Autoencoder, ResidualAutoencoder
 
 def main():
-    dim = 32
+    dim = 64
     if torch.cuda.is_available():
         device = torch.device('cuda')
         print('CUDA available')
@@ -21,69 +25,81 @@ def main():
         vocab = pickle.load(f)
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
-
-    model = Autoencoder(dim = dim).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    
+    #model = VanillaVAE(in_channels=3, latent_dim=dim).to(device)
+    #model = BetaVAE(in_channels=3, latent_dim=dim).to(device)
+    #model = Autoencoder(dim).to(device)
+    model = ResidualAutoencoder(192, 3, dim, layer_count=4).to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    
+    _, data = load_data()
+    dataset = SADataset(data, img_size=192)
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
     trainable, untrainable = get_parameter_count(model)
-    print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))    
-    valid_split = 0.1
-    batch_size = 8
-    epochs = 10000000
-    max_patience = 20
-    batch_metrics = False
+    print(model)
+    print('Parameter count:\n\tTrainable: {}\n\tUntrainable: {}'.format(trainable, untrainable))
+    
+    resize = Resize((192, 192))
 
-    dataset = SADataset(data)
-    valid_size = int(len(dataset) * valid_split)
-    train_size = len(dataset) - valid_size
-    train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
-    train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
-
-    best_model = None
+    epochs = 10000
+    patience = 0
     best_loss = None
-    cur_patience = 0
-
+    best_model = None
+    
     for edx in range(epochs):
         running_loss = 0.0
         model.train()
-        for bdx, batch in enumerate(train_loader):
+        for bdx, i_batch in enumerate(dataloader):
+            feature = i_batch['feature'].to(device)
+            output = model(feature)
             optimizer.zero_grad()
-            feature = batch['feature'].to(device)
-            _, recon = model(feature)
-            loss = F.mse_loss(recon, feature)
-            scalar_loss = loss.item()
+            loss = model.loss_function(*output, M_N = 4 / len(dataset))['loss']
             loss.backward()
             optimizer.step()
-            running_loss += scalar_loss
-            if batch_metrics:
-                print('\tBatch #{}, Loss: {}'.format(bdx, scalar_loss))
-        print('TRAINING Epoch #{}, Total loss: {}'.format(edx, running_loss))
-        
-        model.eval()
-        running_loss = 0.0
-        for bdx, batch in enumerate(valid_loader):
-            feature = batch['feature'].to(device)
-            _, recon = model(feature)
-            loss = F.mse_loss(recon, feature)
+            print('\tBatch {}, Loss: {}'.format(bdx, loss.item()))
+
             running_loss += loss.item()
-        
         if best_loss is None or running_loss < best_loss:
-            best_model = model.state_dict()
-            cur_patience = 0
             best_loss = running_loss
+            best_model = model.state_dict()
+            patience = 0
         else:
-            cur_patience += 1
-        print('VALIDATION Epoch #{}, Total loss: {}, Patience: {}/{}'.format(edx, running_loss, cur_patience, max_patience))
-        if max_patience < cur_patience:
-            print('Out of patience, breaking')
+            patience += 1
+        print('Epoch #{}, Loss: {}, Patience: {}'.format(edx, running_loss, patience))
+        if patience > 50:
+            print('Out of patience')
             break
+        model.eval()
+        if edx % 2 == 0:
+            feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
+            feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+            feature = resize(feature)
+            output = model.generate(feature.unsqueeze(0))[0].permute(1,2,0)
+            output = output.detach().cpu().numpy() * 255.
+            io.imsave('recon_hard.png', output.astype(np.uint8))
+        else:
+            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+            feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+            feature = resize(feature)
+            output = model.generate(feature.unsqueeze(0))[0].permute(1,2,0)
+            output = output.detach().cpu().numpy() * 255.
+            io.imsave('recon_easy.png', output.astype(np.uint8))
+
     model.load_state_dict(best_model)
-    torch.save(model.encoder, 'best_encoder_{}.pt'.format(dim))
-    # Might change this if it is beneficial to add an auxilary reconstruction loss into the final end to end model
-    #torch.save(model.decoder, 'best_decoder_{}.pt'.format(dim))
-    #torch.save(model, 'best_autoencoder_{}.pt'.format(dim))
-
-            
-
+    model.eval()
+    torch.save(model, 'vae.pt')
+    feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+    feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+    feature = resize(feature)
+    output = model.generate(feature.unsqueeze(0))[0].permute(1,2,0)
+    output = output.detach().cpu().numpy() * 255.
+    io.imsave('recon_easy.png', output.astype(np.uint8))
+    feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
+    feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+    feature = resize(feature)
+    output = model.generate(feature.unsqueeze(0))[0].permute(1,2,0)
+    output = output.detach().cpu().numpy() * 255.
+    io.imsave('recon_hard.png', output.astype(np.uint8))
 
 if __name__ == '__main__':
     main()

@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torchvision
 import torch.nn as nn
@@ -36,6 +38,22 @@ class ChannelSELayer(nn.Module):
         output_tensor = torch.mul(x, fc_out_2.view(a, b, 1, 1))
         return output_tensor
 
+class ResidualBlock(nn.Module):
+    def __init__(self, channels, kernel_size, squeeze_factor=1, bias=False):
+        super(ResidualBlock, self).__init__()
+        squeezed = int(channels / squeeze_factor)
+        self.block = nn.Sequential(
+            nn.BatchNorm2d(num_features=channels),
+            nn.Hardswish(),
+            nn.Conv2d(in_channels=channels, out_channels=squeezed, kernel_size=kernel_size, bias=bias, padding='same'),
+            nn.BatchNorm2d(num_features=squeezed),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=squeezed, out_channels=channels, kernel_size=kernel_size, bias=bias, padding='same'),
+        )
+    
+    def forward(self, x):
+        return x + self.block(x)
+
 class Permute(nn.Module):
     def __init__(self, *args):
         super(Permute, self).__init__()
@@ -66,19 +84,18 @@ class Autoencoder(nn.Module):
             nn.BatchNorm2d(num_features=32),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=1, stride=2), # torch.Size([4, 32, 34, 70])
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=4, stride=2), # torch.Size([4, 32, 34, 70])
             nn.BatchNorm2d(num_features=32),
             nn.Dropout2d(p=p),
             nn.Hardswish(),
             nn.Flatten(start_dim=1, end_dim=2),
-            Permute(2,1),
-            #nn.Linear(in_features=1088, out_features=dim)
+            nn.Linear(in_features=22, out_features=dim),
+            nn.Tanh()
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(dim, 1088),
-            Permute(2,1),
-            nn.Unflatten(1, (32, 34)),
+            nn.Linear(in_features=dim, out_features=22),
+            nn.Unflatten(1, (32, 22)),
             nn.ConvTranspose2d(in_channels=32, out_channels=32, kernel_size=4, stride=2),
             nn.BatchNorm2d(num_features=32),
             nn.Dropout2d(p=p),
@@ -107,4 +124,74 @@ class Autoencoder(nn.Module):
     def forward(self, x):
         latent = self.encoder(x)
         recon = self.decoder(latent)
-        return latent, recon
+        return x, latent, recon
+    
+    def encode(self, x):
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        return self.encoder(x)[0]
+    
+    def generate(self, x):
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        return self.forward(x)[2]
+    
+    def loss_function(self, *args, **kwargs):
+        return {'loss': F.mse_loss(args[0], args[2])}
+
+
+class ResidualAutoencoder(nn.Module):
+    def __init__(self, img_size, channels, dim, layer_count=3, kernel_size=3, p=0.2):
+        super(ResidualAutoencoder, self).__init__()
+        filters = 8
+        padding = 0
+        dilation = 1
+        kernel_choices = [3, 5, 7]
+        img_size = [img_size]
+        layers = [DepthwiseSeperableConv(channels, 1, filters)]
+        for _ in range(layer_count):
+            kernel_size = random.choice(kernel_choices)
+            layers.append(ResidualBlock(filters, kernel_size, 2))
+            layers.append(nn.BatchNorm2d(filters))
+            layers.append(nn.Hardswish())
+            layers.append(nn.Dropout2d(p=p))
+            layers.append(nn.Conv2d(in_channels=filters, out_channels=filters*2, kernel_size=kernel_size, stride=2, bias=False))
+            filters *= 2
+            img_size.append(int(((img_size[-1] + 2 * padding - dilation * (kernel_size - 1) - 1) / 2) + 1))
+        layers.append(nn.Flatten(start_dim=2, end_dim=3))
+        layers.append(nn.Linear(in_features=img_size[-1]**2, out_features=dim))
+        self.encoder = nn.Sequential(*layers)
+
+        layers = [nn.Linear(in_features=dim, out_features=img_size[-1]**2)]
+        layers.append(nn.Unflatten(2, (img_size[-1], img_size[-1])))
+        for _ in range(layer_count):
+            img_temp = img_size.pop(-1)
+            kernel_target = img_size[-1] - (img_temp - 1) * 2
+            layers.append(ResidualBlock(filters, kernel_size, 2))
+            layers.append(nn.BatchNorm2d(filters))
+            layers.append(nn.Hardswish())
+            layers.append(nn.ConvTranspose2d(in_channels=filters, out_channels=int(filters/2), kernel_size=kernel_target, stride=2, bias=False))
+            filters = int(filters/2)
+        layers.append(DepthwiseSeperableConv(filters, 1, channels))
+        self.decoder = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        latent = self.encoder(x)
+        recon = self.decoder(latent)
+        return x, latent, recon
+    
+    def encode(self, x):
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        return self.encoder(x)[0]
+    
+    def decode(self, x):
+        return x
+    
+    def generate(self, x):
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        return self.forward(x)[2]
+    
+    def loss_function(self, *args, **kwargs):
+        return {'loss': F.mse_loss(args[0], args[2])}

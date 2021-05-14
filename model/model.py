@@ -25,6 +25,7 @@ from model.custom_perceiver import Perceiver
 from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
 from model.torchformer import TorchEncoder, TorchDecoder
+from model.mobilenetv3 import MyMobileNetV3
 
 from x_transformers import ContinuousTransformerWrapper, Decoder, Encoder, ViTransformerWrapper
 from x_transformers.x_transformers import FeedForward
@@ -84,8 +85,8 @@ def make_glom(image_size, patch_size, dim, levels, iters):
 def make_perceiver(input_channels, dim, depth):
     return Perceiver(input_channels=input_channels, num_freq_bands=6, depth=depth, max_freq=10., latent_dim=dim, num_latents=128)
 
-def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb, attn_talking_heads):
-    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb, attn_talking_heads = attn_talking_heads), dim_in = dim, dim_out = dim)
+def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
+    return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
     return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True))
@@ -99,7 +100,8 @@ def make_linear(dim, depth, heads):
     return LinearAutopadder(LinearAttentionTransformer(dim = dim, depth = depth, max_seq_len=256, heads=global_heads, ff_glu=True, causal=True, receives_context=True, n_local_attn_heads=local_heads, local_attn_window_size=32))
 
 def make_conv(dim, patch_size, channels):
-    return SimpleConv(dim, channels = channels)
+    return torch.load('vae.pt')
+    #return SimpleConv(dim, channels = channels)
 
 def make_torch_enc(image_size, patch_size, dim, depth, heads, channels):
     return TorchEncoder(image_size, patch_size, dim, depth, heads, channels)
@@ -108,11 +110,7 @@ def make_torch_dec(dim, depth, heads):
     return TorchDecoder(dim, depth, heads)
 
 def make_mobilenet(dim):
-    model = models.mobilenet_v3_small()
-    model.classifier = nn.Identity()
-    model.avgpool = nn.AdaptiveAvgPool2d((100,dim))
-    # MobilenetV3-Small
-    return model
+    return MyMobileNetV3(dim)
 
 
 possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder']
@@ -215,9 +213,7 @@ class EndToEndModel(nn.Module):
         
     
     def forward(self, x, src, mask = None, use_activations = False, return_predictions = False):
-        if self.glom:
-            context = self.encoder(x)
-        elif isinstance(self.encoder, Perceiver):
+        if isinstance(self.encoder, Perceiver):
             context = self.encoder(x.permute(0,2,3,1))
         else:
             context = self.encoder(x)
