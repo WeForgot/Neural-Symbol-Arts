@@ -5,10 +5,12 @@ import xml.etree.ElementTree as ETO
 from typing import Union, List, Tuple
 
 import numpy as np
+import skimage.io as io
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
+import torchvision.transforms.functional as VF
 from webcolors import hex_to_rgb, rgb_to_hex
 
 from .datasets import SADataset, LayersDataset, RandomTransform, ToTensor
@@ -109,7 +111,7 @@ def load_saml(filepath, weights) -> Tuple[np.ndarray, np.ndarray]:
 
 def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamped=False) -> None:
     if dest_path is None:
-        dest_path = name + 'saml'
+        dest_path = name + '.saml'
     
     with open(dest_path, 'w') as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n')
@@ -308,3 +310,10 @@ def piecewise_decay(time_val_pairings, t) -> float:
         if vals_sorted[idx][1] <= t and t <= vals_sorted[idx+1][1]:
             return vals_sorted[idx][1]
     return vals_sorted[-1][1]
+
+def load_image(img_path, image_size=None):
+    feature = io.imread(img_path)[:,:,:3].astype(np.float32) / 255.
+    feature = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32))
+    if image_size is not None:
+        feature = VF.resize(feature, (image_size,image_size))
+    return feature

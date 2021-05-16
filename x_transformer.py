@@ -1,8 +1,9 @@
-# Short and sweet one file version of what I am trying to do. Under 200 lines and includes the model right in here. Only things external are data related
-
-import glob
-import os
+# Imports
 import random
+
+import numpy as np
+
+import skimage.io as io
 
 import torch
 import torch.nn as nn
@@ -15,8 +16,21 @@ from tqdm import tqdm
 from x_transformers import ContinuousTransformerWrapper, ViTransformerWrapper, Encoder, Decoder
 
 from model.datasets import SADataset
-from model.utils import load_data
+from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image
 
+# Sampler for generation
+def top_p(logits, thres = 0.9):
+    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+    cum_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+    sorted_indices_to_remove = cum_probs > (1 - thres)
+    sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
+    sorted_indices_to_remove[:, 0] = 0
+
+    sorted_logits[sorted_indices_to_remove] = float('-inf')
+    return sorted_logits.scatter(1, sorted_indices, sorted_logits)
+
+# Model classes
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
@@ -66,19 +80,14 @@ class XDecoder(nn.Module):
         x = self.embedding(x.long()).squeeze(2)
         return torch.cat([x, y], dim=-1)
     
-    def forward(self, saml, mask=None, context=None, return_loss=False):
-        if mask is not None and mask.shape[1] == saml.shape[1]:
-            mask = mask[:, :-1]
-        x, y = saml[:, :-1], saml[:, 1:]
-        x = self.embed_saml(x)
+    def forward(self, saml, mask=None, context=None):
+        x = self.embed_saml(saml)
         out = self.decoder(x, mask=mask, context=context)
-        emb_guess, val_guess = torch.split(out, [self.embedding.embedding_dim, 12], dim=-1)
-        emb_guess = self.to_classes(emb_guess).squeeze(-1).transpose(1,2)
-        if return_loss:
-            emb_target, val_target = torch.split(y, [1, 12], dim=-1)
-            return F.cross_entropy(emb_guess, emb_target.squeeze(-1).long()) + F.mse_loss(val_guess, val_target)
-        out = torch.cat([emb_guess, val_guess], dim=-1)
-        return out
+        emb_guess, col_guess, pos_guess = torch.split(out, [self.embedding.embedding_dim, 4,8], dim=-1)
+        col_guess = torch.sigmoid(col_guess)
+        pos_guess = torch.tanh(pos_guess)
+        emb_guess = self.to_classes(emb_guess)
+        return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
     def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, emb_dim, d_depth, d_heads, max_seq_len=227):
@@ -88,13 +97,43 @@ class NeuralTransformer(nn.Module):
     
     def forward(self, src, tgt, tgt_mask=None, return_loss=False):
         enc = self.encoder(src)
-        out = self.decoder(tgt, mask=tgt_mask, context=enc, return_loss=return_loss)
-        return out
+        features, labels = tgt[:,:-1,:], tgt[:,1:,:]
+        fmask, _ = None, None
+        if tgt_mask is not None:
+            fmask, _ = tgt_mask[:,:-1], tgt_mask[:,1:]
+        emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
+        if return_loss:
+            emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
+            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) + F.mse_loss(col_guess, col_target) + F.mse_loss(pos_guess, pos_target)
+        return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
-    def generate(self, src):
-        pass
+    @torch.no_grad()
+    def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=225, temperature = 1.0, device=None) -> np.ndarray:
+        if len(src.shape) == 3:
+            src = src.unsqueeze(0).to(device)
+        context = self.encoder(src)
+        out = [[vocab['<SOS>']] + [0] * 12]
+        eos_token = vocab['<EOS>']
+        input_mask = [True]
+        while len(out) < max_len+3: # + 3 for <SOS>, <EOS> and to loop the right amount of times
+            x = torch.tensor(out).unsqueeze(0).to(device)
+            mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
+            emb_out, col_out, pos_out = self.decoder(x, mask, context)
+            emb_out, col_out, pos_out = emb_out[0][-1:], col_out[0][-1:], pos_out[0][-1:]
+            filtered_logits = top_p(emb_out)
+            probs = F.softmax(filtered_logits / temperature, dim=-1)
+            sample = torch.multinomial(probs, 1)
+            emb_idx = sample.item()
+            if emb_idx == eos_token:
+                break
+            colors = list(map(float, col_out.squeeze().tolist()))
+            positions = list(map(float, pos_out.squeeze().tolist()))
+            out.append([emb_idx] + colors + positions)
+            input_mask.append(True)
+        return np.asarray(out)
 
-if __name__ == '__main__':
+# The main function
+def main():
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -105,24 +144,26 @@ if __name__ == '__main__':
     random.shuffle(data)
     model = NeuralTransformer(
         image_size=192,
-        patch_size=32,
-        dim=32,
-        e_depth=1,
+        patch_size=64,
+        dim=64,
+        e_depth=2,
         e_heads=8,
         vocab=vocab,
-        emb_dim=8,
-        d_depth=1,
-        d_heads=1
+        emb_dim=16,
+        d_depth=4,
+        d_heads=16
     ).to(device)
+    print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     train_dataset, valid_dataset = SADataset(train_split, img_size=192), SADataset(valid_split, img_size=192)
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True), DataLoader(valid_dataset, batch_size=4)
 
-    epochs = 10
+    epochs = 100000
     max_seq_len = 227
     accumulate = 8
+    eval_every = 1
     idxs = []
     patience = 0
     best_loss = None
@@ -148,12 +189,9 @@ if __name__ == '__main__':
             running_loss += loss.item()
             loss.backward()
             optimizer.step()
-
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
-
         model.eval()
-
         running_loss = 0
 
         for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
@@ -162,7 +200,12 @@ if __name__ == '__main__':
                 running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
-        
+
+        if edx % eval_every == 0:
+            feature = load_image('PleaseWork.png', image_size=192)
+            saml = model.generate(feature, vocab, device=device)
+            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
+
         if best_loss is None or running_loss < best_loss:
             best_loss = running_loss
             best_model = model.state_dict()
@@ -170,10 +213,13 @@ if __name__ == '__main__':
         else:
             patience += 1
 
-
-        if patience > 10:
+        if patience > 50:
             print('Out of patience')
             break
-    
+
     model.load_state_dict(best_model)
     torch.save(model, 'best_model.pt')
+
+
+if __name__ == '__main__':
+    main()
