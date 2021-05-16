@@ -1,4 +1,5 @@
 # Imports
+import os
 import random
 
 import numpy as np
@@ -139,7 +140,8 @@ def main():
         device = torch.device('cpu')
     else:
         device = torch.device('cuda:0') if torch.cuda.device_count() > 0 else torch.device('cpu')
-    
+    if os.path.exists('x_train.csv'):
+        os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
     model = NeuralTransformer(
@@ -191,6 +193,7 @@ def main():
             optimizer.step()
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
+        train_loss = running_loss
         model.eval()
         running_loss = 0
 
@@ -200,6 +203,8 @@ def main():
                 running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
+        with open('x_train.csv', 'a') as f:
+            f.write('{},{},{}'.format(edx, train_loss, running_loss))
 
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=192)
