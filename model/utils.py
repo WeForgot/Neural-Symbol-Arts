@@ -277,10 +277,13 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         saml_mask.append(False)
     return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
 
-def load_data(should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
+def load_data(dpath = None, should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
-    all_samls = glob.glob(os.path.join('..','data','BetterSymbolArts','processed','*.saml'))
+    if dpath is None:
+        all_samls = glob.glob(os.path.join('..','data','BetterSymbolArts','processed','*.saml'))
+    else:
+        all_samls = glob.glob(os.path.join(dpath, '*.saml'))
     data = []
     for x in all_samls:
         print('Working on {}'.format(x))
