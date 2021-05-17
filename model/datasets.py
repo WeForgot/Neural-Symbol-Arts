@@ -99,30 +99,9 @@ class RandomTransform(object):
         paste(new_img, img, (new_y, new_x))
         return new_img[:,:,:3].astype(np.float32)
 
-class LayersDataset(Dataset):
-    def __init__(self, base_path, transform=None):
-        self.im_paths = glob.glob(os.path.join(base_path, '[0-9]*.png'))
-        self.transform = transform
-    
-    def __len__(self):
-        return len(self.im_paths)
-    
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        img_name = self.im_paths[idx]
-        sample = io.imread(img_name, plugin='pil')
-        if self.transform:
-            sample = self.transform(sample)
-        return {'idx': idx, 'path': img_name, 'image': sample}
-
 class SADataset(Dataset):
     def __init__(self, data, img_size=224):
         self.data = data
-        self.rand_max = 227
-        #self.cur_rand = random.randint(2, self.rand_max-1)
-        self.cur_rand = self.rand_max
-        #self.resize = transforms.Resize((96,192))
         self.resize = transforms.Resize((img_size,img_size))
     
     def __len__(self):
@@ -132,9 +111,7 @@ class SADataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         cur_data = self.data[idx]
-        rand_end = random.randint(2,len(cur_data['label']))
         feature, label, mask = io.imread(cur_data['feature'])[:,:,:3].astype(np.float32) / 255., cur_data['label'], cur_data['mask']
-        #feature, label, mask = io.imread(cur_data['feature']).astype(np.float32) / 255., cur_data['label'][:self.cur_rand], cur_data['mask'][:self.cur_rand]
         feature, label, mask = torch.from_numpy(feature.transpose((2, 0, 1)).astype(np.float32)), torch.from_numpy(label.astype(np.float32)), torch.from_numpy(mask)
         feature = self.resize(feature)
         return {'feature': feature, 'label': label, 'mask': mask}

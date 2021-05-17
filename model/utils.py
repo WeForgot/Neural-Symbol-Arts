@@ -1,3 +1,4 @@
+import argparse
 import os
 import glob
 import lxml.etree as ET
@@ -13,7 +14,7 @@ import torchvision
 import torchvision.transforms.functional as VF
 from webcolors import hex_to_rgb, rgb_to_hex
 
-from .datasets import SADataset, LayersDataset, RandomTransform, ToTensor
+from .datasets import SADataset, RandomTransform, ToTensor
 
 def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
@@ -50,14 +51,6 @@ def get_parameter_count(model: nn.Module):
     t_params = sum([np.prod(p.size()) for p in t_model_parameters])
     u_params = sum([np.prod(p.size()) for p in u_model_parameters])
     return t_params, u_params
-
-def load_layers(base_path):
-    # TODO: Modify color by random hex value to ensure that latent is covered over all color values
-    dataset = LayersDataset(base_path, transform=torchvision.transforms.Compose([
-        RandomTransform(),
-        ToTensor(),
-    ]))
-    return dataset
 
 def load_data(base_path, weights):
     bases = [os.path.split(x)[-1][:-5] for x in glob.glob(os.path.join(base_path, '*.saml'))]
@@ -287,7 +280,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
 def load_data(should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
-    all_samls = glob.glob(os.path.join('data','BetterSymbolArts','processed','*.saml'))
+    all_samls = glob.glob(os.path.join('..','data','BetterSymbolArts','processed','*.saml'))
     data = []
     for x in all_samls:
         print('Working on {}'.format(x))
