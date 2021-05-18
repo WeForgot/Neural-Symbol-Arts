@@ -7,6 +7,7 @@ import torchvision.models as models
 
 from einops.layers.torch import Rearrange
 
+from vit_pytorch.dino import Dino
 from vit_pytorch.t2t import T2TViT
 from vit_pytorch.levit import LeViT
 from model.custom_cvt import CvT
@@ -198,9 +199,7 @@ class EndToEndModel(nn.Module):
         self.color_activation = nn.GELU() if use_activations else nn.Identity()
         self.position_activation = nn.GELU() if use_activations else nn.Identity()
         
-        class_weights = torch.ones((layer_count,), dtype=torch.float32)
-        class_weights[0] = 0
-        self.class_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.class_loss = nn.CrossEntropyLoss(ignore_index=0)
         self.color_loss = nn.MSELoss()
         self.position_loss = nn.MSELoss()
     
@@ -279,8 +278,59 @@ class EndToEndModel(nn.Module):
             out.append([emb_idx] + colors + positions)
             input_mask.append(True)
         return np.asarray(out)
-            
 
+def pretrain_dino(model, train_dataset, valid_dataset, img_size, epochs=1000000, patience=50, hidden_layer='to_latent', device='cpu'):
+    assert isinstance(model, ViT) or isinstance(model, StyleViT), 'This is only supported for Vanilla and Style ViTs for now'
 
-            
-            
+    import torch.optim as optim
+    from torch.utils.data import DataLoader
+
+    learner = Dino(model, image_size=img_size, hidden_layer=hidden_layer).to(device)
+    opt = optim.AdamW(learner.parameters(), lr=3e-4)
+
+    dataloader = DataLoader(train_dataset, batch_size=128, shuffle = True)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32)
+
+    best_loss = None
+    best_model = None
+
+    cur_pat = 0
+
+    print('BEGINNING ENCODER PRETRAINING')
+    for edx in range(epochs):
+        running_loss = 0.0
+        for bdx, i_batch in enumerate(dataloader):
+            features = i_batch['feature'].to(device)
+            loss = learner(features)
+            running_loss += loss.item()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            learner.update_moving_average()
+            print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
+
+        running_loss = 0.0
+        learner.eval()
+        model.eval()
+        with torch.no_grad():
+            for bdx, i_batch in enumerate(valid_dataloader):
+                features = i_batch['feature'].to(device)
+                running_loss += learner(features).item()
+        learner.train()
+        model.train()
+        
+        if best_loss is None or running_loss < best_loss:
+            best_loss = running_loss
+            best_model = model.state_dict()
+            cur_pat = 0
+        else:
+            cur_pat += 1
+        print('Epoch #{}, Loss: {}, Patience: {}/{}'.format(edx, running_loss, cur_pat, patience))
+        if cur_pat > patience:
+            print('Out of patience')
+            break
+    print('Best model loss: {}\nFreezing encoder'.format(best_loss))
+    model.load_state_dict(best_model)
+    for p in model.parameters():
+        p.requires_grad = False
+    return model

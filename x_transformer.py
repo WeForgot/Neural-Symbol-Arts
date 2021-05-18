@@ -227,18 +227,20 @@ def main():
         model.eval()
         running_loss = 0
 
-        for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
-            img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-            for idx in range(2, len(saml[0])):
-                running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
+        with torch.no_grad():
+            for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
+                img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+                for idx in range(2, len(saml[0])):
+                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
         with open('x_train.csv', 'a') as f:
             f.write('{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataset), running_loss/len(valid_dataset)))
-
+        
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
-            saml = model.generate(feature, vocab, device=device)
+            with torch.no_grad():
+                saml = model.generate(feature, vocab, device=device)
             convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
 
         if best_loss is None or running_loss < best_loss:

@@ -25,7 +25,7 @@ import torchvision.transforms as transforms
 import pandas as pd
 from tqdm import tqdm
 
-from model.model import EndToEndModel
+from model.model import EndToEndModel, pretrain_dino
 from model.datasets import SADataset
 from model.utils import get_parameter_count, Vocabulary, convert_numpy_to_saml, str2bool, load_data, linear_decay, piecewise_decay
 
@@ -136,14 +136,18 @@ def main(args):
     print(model)
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
+
     
-    dataset = SADataset(data)
+    
+    dataset = SADataset(data, img_size=192)
     valid_size = int(len(dataset) * valid_split)
     train_size = len(dataset) - valid_size
     train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
-    resize = transforms.Resize((224,224))
-    label_len = 227#dataset[0]['label'].shape[1]
+    resize = transforms.Resize((192,192))
+    label_len = 227
+
+    model.encoder = pretrain_dino(model.encoder, train_set, valid_set, 192, device=device)
 
     optimizer = args.optimizer
     model_scd = None
@@ -275,15 +279,16 @@ def main(args):
         valid_color_loss = 0
         valid_position_loss = 0
         valid_divide_by = 0
-        for bdx, i_batch in enumerate(tqdm(valid_loader, desc='Validation batch', leave=False)):
-            feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-            for ldx in range(2, label.shape[1]):
-                valid_divide_by += len(i_batch)
-                pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
-                emb_loss, color_loss, pos_loss, _ = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
-                valid_emb_loss += emb_loss.item()
-                valid_color_loss += color_loss.item()
-                valid_position_loss += pos_loss.item()
+        with torch.no_grad():
+            for bdx, i_batch in enumerate(tqdm(valid_loader, desc='Validation batch', leave=False)):
+                feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+                for ldx in range(2, label.shape[1]):
+                    valid_divide_by += len(i_batch)
+                    pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
+                    emb_loss, color_loss, pos_loss, _ = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
+                    valid_emb_loss += emb_loss.item()
+                    valid_color_loss += color_loss.item()
+                    valid_position_loss += pos_loss.item()
 
 
         total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
@@ -311,16 +316,16 @@ def main(args):
         else:
             cur_patience += 1
         
-        # Evaluate model on test file if it is time
-        if eval_every > 0 and edx % eval_every == 0:
-            model.eval()
-            #feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
-            feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
-            feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
-            feature = resize(feature)
-            generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))
-            dest_name = '{}_{}'.format(name, edx)
-            convert_numpy_to_saml(generated, vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
+        with torch.no_grad():
+            # Evaluate model on test file if it is time
+            if eval_every > 0 and edx % eval_every == 0:
+                #feature = io.imread('PleaseWorkHard.png')[:,:,:3].astype(np.float32) / 255.
+                feature = io.imread('PleaseWork.png')[:,:,:3].astype(np.float32) / 255.
+                feature = torch.from_numpy(feature.transpose((2, 0, 1))).to(device)
+                feature = resize(feature)
+                generated = np.asarray(model.generate(feature.unsqueeze(0), vocab, 225))
+                dest_name = '{}_{}'.format(name, edx)
+                convert_numpy_to_saml(generated, vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
         
         # Break if the progress has gone stale
         if cur_patience > max_patience:
