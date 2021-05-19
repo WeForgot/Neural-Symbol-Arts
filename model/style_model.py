@@ -60,7 +60,7 @@ class StyleViT(nn.Module):
         x = img
         x = self.to_patch(img)
         x = self.patch_emb(x)
-        b, n, _ = x.shape
+        _, n, _ = x.shape
         x += self.pos_embedding[:,:n]
         x = self.dropout(x)
         z = img
