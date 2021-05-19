@@ -46,6 +46,7 @@ def main(args):
     fast_train = args.fast_train
 
     target_length = 225
+    rs_size = 224
     data_clamped = use_activations
     reverse_data = False
 
@@ -137,17 +138,15 @@ def main(args):
     trainable, untrainable = get_parameter_count(model)
     print('Total encoder paramters\n\tTrainable:\t{}\n\tUntrainable:\t{}'.format(trainable, untrainable))
 
-    
-    
-    dataset = SADataset(data, img_size=192)
-    valid_size = int(len(dataset) * valid_split)
-    train_size = len(dataset) - valid_size
-    train_set, valid_set = torch.utils.data.random_split(SADataset(data), [train_size, valid_size])
+    random.shuffle(data)
+    valid_split = 1 - valid_split
+    train_set, valid_set = SADataset(data[:int(len(data)*valid_split)], img_size=rs_size), SADataset(data[int(len(data)*valid_split):], img_size=rs_size)
     train_loader, valid_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True), DataLoader(valid_set, batch_size=batch_size, drop_last=True)
-    resize = transforms.Resize((192,192))
+    resize = transforms.Resize((rs_size,rs_size))
     label_len = 227
 
-    model.encoder = pretrain_dino(model.encoder, train_set, valid_set, 192, device=device)
+    if not args.load_checkpoint:
+        model.encoder = pretrain_dino(model.encoder, train_set, valid_set, rs_size, device=device)
 
     optimizer = args.optimizer
     model_scd = None
@@ -284,7 +283,6 @@ def main(args):
                 feature, label, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 for ldx in range(2, label.shape[1]):
                     valid_divide_by += len(i_batch)
-                    pad_label, pad_mask = torch.zeros_like(label), torch.zeros_like(mask).bool()
                     emb_loss, color_loss, pos_loss, _ = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
                     valid_emb_loss += emb_loss.item()
                     valid_color_loss += color_loss.item()

@@ -22,6 +22,7 @@ from reformer_pytorch import Autopadder as ReformerAutopadder
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 from model.custom_perceiver import Perceiver
+from model.custom_gmlp import gMLPVision
 #from glom_pytorch import Glom
 from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
@@ -86,6 +87,9 @@ def make_glom(image_size, patch_size, dim, levels, iters):
 def make_perceiver(input_channels, dim, depth):
     return Perceiver(input_channels=input_channels, num_freq_bands=6, depth=depth, max_freq=10., latent_dim=dim, num_latents=128)
 
+def make_gmlp(image_size, patch_size, dim, depth, channels):
+    return gMLPVision(image_size=image_size, patch_size=patch_size, dim=dim, depth=depth, channels=channels)
+
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
@@ -114,7 +118,7 @@ def make_mobilenet(dim):
     return MyMobileNetV3(dim)
 
 
-possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder']
+possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder', 'gmlp']
 possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
@@ -152,7 +156,6 @@ class EndToEndModel(nn.Module):
             self.encoder = make_mobilenet(dim)
         elif e_type == 'glom':
             self.glom = True
-
             # In case I want to make an argument for this at some point
             levels = 6
             prop_mult = max(2, 2) 
@@ -166,6 +169,8 @@ class EndToEndModel(nn.Module):
             self.encoder = make_torch_enc(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'perceiver':
             self.encoder = make_perceiver(channels, dim, e_depth)
+        elif e_type == 'gmlp':
+            self.encoder = make_gmlp(image_size, patch_size, dim, e_depth, channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss
@@ -248,6 +253,7 @@ class EndToEndModel(nn.Module):
         if self.glom:
             context = self.encoder(x).squeeze(1)
         else:
+            print(x.shape)
             context = self.encoder(x)
         device = context.device
         out = [[vocab['<SOS>']] + [0] * 12]
@@ -280,7 +286,10 @@ class EndToEndModel(nn.Module):
         return np.asarray(out)
 
 def pretrain_dino(model, train_dataset, valid_dataset, img_size, epochs=1000000, patience=50, hidden_layer='to_latent', device='cpu'):
-    assert isinstance(model, ViT) or isinstance(model, StyleViT), 'This is only supported for Vanilla and Style ViTs for now'
+    #assert isinstance(model, ViT) or isinstance(model, StyleViT), 'This is only supported for Vanilla and Style ViTs for now'
+    if not isinstance(model, (StyleViT, ViT)):
+        print('No support for pretraining encoder with {}'.format(type(model).__name__))
+        return model
 
     import torch.optim as optim
     from torch.utils.data import DataLoader
