@@ -285,7 +285,6 @@ class EndToEndModel(nn.Module):
         return np.asarray(out)
 
 def pretrain_dino(model, train_dataset, valid_dataset, img_size, epochs=1000000, patience=50, hidden_layer='to_latent', device='cpu'):
-    #assert isinstance(model, ViT) or isinstance(model, StyleViT), 'This is only supported for Vanilla and Style ViTs for now'
     if not isinstance(model, (StyleViT, ViT, gMLPVision)):
         print('No support for pretraining encoder with {}'.format(type(model).__name__))
         return model

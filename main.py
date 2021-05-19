@@ -145,7 +145,7 @@ def main(args):
     resize = transforms.Resize((rs_size,rs_size))
     label_len = 227
 
-    if not args.load_checkpoint:
+    if not args.load_checkpoint and args.pretrain:
         model.encoder = pretrain_dino(model.encoder, train_set, valid_set, rs_size, device=device)
 
     optimizer = args.optimizer
@@ -365,6 +365,7 @@ parser.add_argument('--load_checkpoint', default=False, type=str2bool, help='Whe
 parser.add_argument('--layer_alpha', default=1.0, type=float, help='The scaling factor for the layer prediction loss')
 parser.add_argument('--color_alpha', default=1.0, type=float, help='The scaling factor for the color prediction loss')
 parser.add_argument('--position_alpha', default=1.0, type=float, help='The scaling factor for the position prediction loss')
+parser.add_argument('--pretrain', default=True, type=str2bool, help='Whether to pretrain the encoder using DINO')
 
 parser.add_argument('--fast_train', default=False, type=str2bool, help='Whether to only do "accumulate_gradient"s number of passes before going to next batch')
 
