@@ -94,7 +94,7 @@ def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb)
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
-    return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True))
+    return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True, ff_dropout=0.2, attn_dropout=0.2, attn_layer_dropout=0.2))
 
 def make_reformer(dim, depth, heads):
     return ReformerAutopadder(Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True))
