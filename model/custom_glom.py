@@ -18,6 +18,16 @@ def exists(val):
 def default(val, d):
     return val if exists(val) else d
 
+class DepthWiseConv2d(nn.Module):
+    def __init__(self, dim_in, dim_out, kernel_size, padding = 0, stride = 1, bias = True):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(dim_in, dim_in, kernel_size = kernel_size, padding = padding, groups = dim_in, stride = stride, bias = bias),
+            nn.Conv2d(dim_in, dim_out, kernel_size = 1, bias = bias)
+        )
+    def forward(self, x):
+        return self.net(x)
+
 # class
 
 class GroupedFeedForward(nn.Module):
@@ -84,7 +94,8 @@ class Glom(nn.Module):
         patch_size = 14,
         consensus_self = False,
         local_consensus_radius = 0,
-        iters = None
+        iters = None,
+        colapse = False
     ):
         super().__init__()
         # bottom level - incoming image, tokenize and add position
@@ -108,6 +119,14 @@ class Glom(nn.Module):
 
         # consensus attention
         self.attention = ConsensusAttention(num_patches_side, attend_self = consensus_self, local_consensus_radius = local_consensus_radius)
+
+        # Levels dimensions: [Batch, Patch, Levels, Dim]
+        self.colapse = nn.Sequential(
+            Rearrange('b p l d -> b l p d'),
+            DepthWiseConv2d(dim_in = levels, dim_out = 1, kernel_size = 1, bias=False)
+        ) if colapse else nn.Identity()
+
+        self.to_latent = nn.Identity()
 
     def forward(self, img, iters = None, levels = None):
         b, device = img.shape[0], img.device
@@ -142,5 +161,7 @@ class Glom(nn.Module):
             levels_mean = levels_sum / rearrange(num_contributions, 'l -> () () l ()')
 
             levels = levels_mean  # set for next iteration
+        
+        levels = self.colapse(levels)
 
-        return levels
+        return self.to_latent(levels)

@@ -69,7 +69,6 @@ def make_efficient(image_size, patch_size, dim, depth, heads, mlp_dim, channels)
                             max_seq_len = 576,
                             heads = heads,
                             ff_glu = True,
-                            attend_axially = True
                         ))
     return enc
 
@@ -81,26 +80,27 @@ def make_autoencoder(ae_path):
     enc = torch.load(ae_path)
     return enc
 
-def make_glom(image_size, patch_size, dim, levels, iters):
-    return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True, iters=iters)
+def make_glom(image_size, patch_size, dim, levels, iters=None):
+    return Glom(dim = dim, levels = levels, image_size = image_size, patch_size = patch_size, consensus_self=True, iters=iters, colapse=True)
 
 def make_perceiver(input_channels, dim, depth):
     return Perceiver(input_channels=input_channels, num_freq_bands=6, depth=depth, max_freq=10., latent_dim=dim, num_latents=128)
 
 def make_gmlp(image_size, patch_size, dim, depth, channels):
-    return gMLPVision(image_size=image_size, patch_size=patch_size, dim=dim, depth=depth, channels=channels)
+    return gMLPVision(image_size=image_size, patch_size=patch_size, dim=dim, depth=depth, channels=channels, prob_survival=0.7)
 
 def make_decoder(dim, depth, heads, use_scalenorm, rel_pos_bias, rotary_pos_emb):
     return ContinuousTransformerWrapper(max_seq_len = 256, attn_layers = Decoder(dim = dim, depth = depth, heads = heads, use_scalenorm = use_scalenorm, rel_pos_bias = rel_pos_bias, rotary_emb_dim = rotary_pos_emb), dim_in = dim, dim_out = dim)
 
 def make_routing(dim, depth, heads):
-    return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True, ff_dropout=0.2, attn_dropout=0.2, attn_layer_dropout=0.2))
+    pkm_layer = 1 + (depth // 2)
+    return RoutingAutopadder(RoutingTransformer(dim = dim, depth = depth, max_seq_len = 256, heads = heads, ff_glu = True, use_scale_norm = True, causal = True, receives_context=True, pkm_layers=(pkm_layer,), pkm_num_keys=128, ff_dropout=0.2, attn_dropout=0.2, attn_layer_dropout=0.2, layer_dropout=0.2))
 
 def make_reformer(dim, depth, heads):
     return ReformerAutopadder(Reformer(dim = dim, depth = depth, heads = heads, causal = True, ff_glu = True, use_scale_norm = True))
 
 def make_linear(dim, depth, heads):
-    local_heads = int(heads/2)
+    local_heads = (heads // 2)
     global_heads = heads - local_heads
     return LinearAutopadder(LinearAttentionTransformer(dim = dim, depth = depth, max_seq_len=256, heads=global_heads, ff_glu=True, causal=True, receives_context=True, n_local_attn_heads=local_heads, local_attn_window_size=32))
 
@@ -160,11 +160,11 @@ class EndToEndModel(nn.Module):
             levels = 6
             prop_mult = max(2, 2) 
 
-            self.encoder = nn.Sequential(
-                make_glom(image_size, patch_size, dim, levels, levels * prop_mult),
-                Rearrange('b p l d -> b (p l) d'),
-            )
-            #self.encoder = make_glom(image_size, patch_size, dim, 3)
+            #self.encoder = nn.Sequential(
+            #    make_glom(image_size, patch_size, dim, levels, levels * prop_mult),
+            #    Rearrange('b p l d -> b (p l) d'),
+            #)
+            self.encoder = make_glom(image_size, patch_size, dim, 3)
         elif e_type == 'torch':
             self.encoder = make_torch_enc(image_size, patch_size, dim, e_depth, e_heads, channels)
         elif e_type == 'perceiver':
@@ -201,8 +201,8 @@ class EndToEndModel(nn.Module):
         self.to_colors = nn.Linear(in_features=dim, out_features=4, bias=False)
         self.to_positions = nn.Linear(in_features=dim, out_features=8, bias=False)
 
-        self.color_activation = nn.GELU() if use_activations else nn.Identity()
-        self.position_activation = nn.GELU() if use_activations else nn.Identity()
+        self.color_activation = nn.Sigmoid() if use_activations else nn.Identity()
+        self.position_activation = nn.Tanh() if use_activations else nn.Identity()
         
         self.class_loss = nn.CrossEntropyLoss(ignore_index=0)
         self.color_loss = nn.MSELoss()
@@ -285,7 +285,7 @@ class EndToEndModel(nn.Module):
         return np.asarray(out)
 
 def pretrain_dino(model, train_dataset, valid_dataset, img_size, epochs=1000000, patience=50, hidden_layer='to_latent', device='cpu'):
-    if not isinstance(model, (StyleViT, ViT, gMLPVision)):
+    if not isinstance(model, (StyleViT, ViT, gMLPVision, Glom)):
         print('No support for pretraining encoder with {}'.format(type(model).__name__))
         return model
 
