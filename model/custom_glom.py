@@ -1,7 +1,8 @@
 from math import sqrt
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch import nn, einsum
+from torch import einsum
 
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
@@ -124,6 +125,7 @@ class Glom(nn.Module):
         self.colapse = nn.Sequential(
             Rearrange('b p l d -> b l p d'),
             DepthWiseConv2d(dim_in = levels, dim_out = 1, kernel_size = 1, bias=False)
+            nn.Flatten(1, 2)
         ) if colapse else nn.Identity()
 
         self.to_latent = nn.Identity()

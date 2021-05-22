@@ -196,10 +196,10 @@ class EndToEndModel(nn.Module):
         self.pre_out_norm = nn.LayerNorm(normalized_shape=dim)
         
         
-        self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim, bias=False)
-        self.to_classes = nn.Linear(in_features=dim, out_features=layer_count, bias=False)
-        self.to_colors = nn.Linear(in_features=dim, out_features=4, bias=False)
-        self.to_positions = nn.Linear(in_features=dim, out_features=8, bias=False)
+        self.project_in = nn.Linear(in_features=self.latent_pre_dim, out_features=dim)
+        self.to_classes = nn.Linear(in_features=dim, out_features=layer_count)
+        self.to_colors = nn.Linear(in_features=dim, out_features=4)
+        self.to_positions = nn.Linear(in_features=dim, out_features=8)
 
         self.color_activation = nn.Sigmoid() if use_activations else nn.Identity()
         self.position_activation = nn.Tanh() if use_activations else nn.Identity()
@@ -251,7 +251,7 @@ class EndToEndModel(nn.Module):
     @torch.no_grad()
     def generate(self, x, vocab, max_len=225, filter_logits_fn = top_k, p = 0.9, temperature = 1.0):
         if self.glom:
-            context = self.encoder(x).squeeze(1)
+            context = self.encoder(x)
         else:
             context = self.encoder(x)
         device = context.device

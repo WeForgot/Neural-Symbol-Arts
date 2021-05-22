@@ -194,6 +194,7 @@ def main(args):
         position_losses = 0
         startTime = time.time()
         train_divide_by = 0
+        loss_gating = [True, False, False]
 
         # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
         ldxs = list(range(2, label_len))
@@ -224,11 +225,19 @@ def main(args):
                 ldx = ldxs.pop(0)
 
                 layer_loss, color_loss, position_loss, dec_aux = model(feature, label[:,:ldx,:], mask=mask[:,:ldx])
-
+                if loss_gating[0]:
+                    total_loss += layer_loss * layer_alpha
+                if loss_gating[1]:
+                    total_loss += color_loss * color_alpha
+                if loss_gating[2]:
+                    total_loss += position_loss * position_alpha
+                total_loss += (dec_aux[0] if dec_aux is not None else 0)
+                '''
                 total_loss += layer_loss * layer_alpha + \
                               color_loss * color_alpha + \
                               position_loss * position_alpha + \
                               (dec_aux if dec_aux is not None else 0)
+                '''
                 total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
                 blended_losses += total_loss.item()
                 layer_losses += layer_loss.item()
@@ -253,7 +262,6 @@ def main(args):
                     total_loss = 0
                     if fast_train:
                         break
-            
             if cur_grad != 0:
                 total_loss.backward()
                 model_opt.step()
@@ -327,8 +335,17 @@ def main(args):
         
         # Break if the progress has gone stale
         if cur_patience > max_patience:
-            print('Out of patience. Breaking')
-            break
+            if loss_gating[0] and loss_gating[1] and loss_gating[2]:
+                print('Out of patience. Breaking')
+            else:
+                if not loss_gating[1]:
+                    loss_gating[1] = True
+                elif not loss_gating[2]:
+                    loss_gating[2] = True
+                else:
+                    raise ValueError('Something went wrong send help')
+                cur_patience = 0
+                print('Out of patience. Moving on')
     
     # Save over current model with best model. Could do optimizer too but that just doesn't make sense to me?
     torch.save(best_model, '{}.pt'.format(name))
