@@ -124,7 +124,7 @@ class Glom(nn.Module):
         # Levels dimensions: [Batch, Patch, Levels, Dim]
         self.colapse = nn.Sequential(
             Rearrange('b p l d -> b l p d'),
-            DepthWiseConv2d(dim_in = levels, dim_out = 1, kernel_size = 1, bias=False)
+            DepthWiseConv2d(dim_in = levels, dim_out = 1, kernel_size = 1, bias=False),
             nn.Flatten(1, 2)
         ) if colapse else nn.Identity()
 
