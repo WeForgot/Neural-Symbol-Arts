@@ -83,6 +83,8 @@ def main(args):
         cur_patience = metadata['patience']
         train_loss_array = metadata['train']
         valid_loss_array = metadata['valid']
+        loss_gating = metadata['loss_gating']
+        patience_gating = metadata['patience_gating']
         
     else:
         print('Creating new checkpoint')
@@ -125,7 +127,9 @@ def main(args):
             'num_latents': args.style_latents,
             'emb_drop': args.emb_drop,
             'thicc_ff': args.thicc_ff,
-            'use_activations': args.activations
+            'use_activations': args.activations,
+            'loss_gating': [True, False, False],
+            'patience_gating': [20,50,50]
         }
         epoch = 0
         cur_patience = 0
@@ -176,7 +180,8 @@ def main(args):
     EOS_token = vocab['<EOS>']
     best_loss = None
     best_model = None
-    patience_gates = [20, 50, 50]
+    patience_gating = [20, 50, 50]
+    loss_gating = [True, False, False]
     print('Training start. Starting at epoch {}'.format(epoch))
     for edx in range(epoch, max_epochs):
         # Unfreeze embeddings if it is time for that
@@ -195,7 +200,6 @@ def main(args):
         position_losses = 0
         startTime = time.time()
         train_divide_by = 0
-        loss_gating = [True, False, False]
 
         # Probably not required but because we are using accumulated gradients it can lead to less overfitting on a short timescale
         ldxs = list(range(2, label_len))
@@ -315,6 +319,8 @@ def main(args):
         torch.save(model_opt.state_dict(), '{}_optim.pt'.format(name))
         metadata['epoch'] += 1
         metadata['patience'] = cur_patience
+        metadata['loss_gating'] = loss_gating
+        metadata['patience_gating'] = patience_gating
         metadata['train'] = train_loss_array
         metadata['valid'] = valid_loss_array
         with open('{}.json'.format(name), 'w') as f:
@@ -341,8 +347,8 @@ def main(args):
         
         # Break if the progress has gone stale
         #if cur_patience > max_patience:
-        if cur_patience > patience_gates[0]:
-            patience_gates.pop(0)
+        if cur_patience > patience_gating[0]:
+            patience_gating.pop(0)
             if loss_gating[0] and loss_gating[1] and loss_gating[2]:
                 print('Out of patience. Breaking')
             else:
