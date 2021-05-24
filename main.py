@@ -176,6 +176,7 @@ def main(args):
     EOS_token = vocab['<EOS>']
     best_loss = None
     best_model = None
+    patience_gates = [20, 50, 50]
     print('Training start. Starting at epoch {}'.format(epoch))
     for edx in range(epoch, max_epochs):
         # Unfreeze embeddings if it is time for that
@@ -339,7 +340,9 @@ def main(args):
                 convert_numpy_to_saml(generated, vocab, dest_path=dest_name+'.saml', name=dest_name, values_clamped=data_clamped)
         
         # Break if the progress has gone stale
-        if cur_patience > max_patience:
+        #if cur_patience > max_patience:
+        if cur_patience > patience_gates[0]:
+            patience_gates.pop(0)
             if loss_gating[0] and loss_gating[1] and loss_gating[2]:
                 print('Out of patience. Breaking')
             else:
