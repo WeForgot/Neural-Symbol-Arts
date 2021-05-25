@@ -243,7 +243,7 @@ def main(args):
                               position_loss * position_alpha + \
                               (dec_aux if dec_aux is not None else 0)
                 '''
-                total_losses += layer_loss.item() + color_loss.item() + position_loss.item()
+                total_losses += total_loss.item()
                 blended_losses += total_loss.item()
                 layer_losses += layer_loss.item()
                 color_losses += color_loss.item()
@@ -353,8 +353,10 @@ def main(args):
                 print('Out of patience. Breaking')
             else:
                 if not loss_gating[1]:
+                    print('Adding color loss')
                     loss_gating[1] = True
                 elif not loss_gating[2]:
+                    print('Adding position loss')
                     loss_gating[2] = True
                 else:
                     raise ValueError('Something went wrong send help')
