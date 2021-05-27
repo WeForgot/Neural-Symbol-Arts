@@ -121,16 +121,30 @@ class NeuralTransformer(nn.Module):
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), emb_dim, max_seq_len, dim, d_depth, d_heads)
     
-    def forward(self, src, tgt, tgt_mask=None, return_loss=False):
+    def forward(self, src, tgt, tgt_mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0, stochastic_loss=True):
         enc = self.encoder(src)
         features, labels = tgt[:,:-1,:], tgt[:,1:,:]
-        fmask, _ = None, None
+        fmask = None
         if tgt_mask is not None:
-            fmask, _ = tgt_mask[:,:-1], tgt_mask[:,1:]
+            fmask = tgt_mask[:,:-1]
         emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) + F.mse_loss(col_guess, col_target) + F.mse_loss(pos_guess, pos_target)
+            if stochastic_loss:
+                stoch_loss = torch.tensor(0.0).to(src.device)
+                emb_loss = F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
+                col_loss = F.mse_loss(col_guess, col_target) * col_alpha
+                pos_loss = F.mse_loss(pos_guess, pos_target) * pos_alpha
+                scalar_loss = emb_loss.item() + col_loss.item() + pos_loss.item()
+                if random.random() > 0.5:
+                    stoch_loss += emb_loss
+                if random.random() > 0.5:
+                    stoch_loss += col_loss
+                if random.random() > 0.5:
+                    stoch_loss += pos_loss
+                return stoch_loss, scalar_loss
+            else:
+                return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -169,7 +183,7 @@ def main():
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16}
+    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 16, 'd_depth': 4, 'd_heads': 16}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -189,9 +203,9 @@ def main():
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     train_dataset, valid_dataset = SADataset(train_split, img_size=192), SADataset(valid_split, img_size=192)
-    train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True), DataLoader(valid_dataset, batch_size=4)
+    train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True), DataLoader(valid_dataset, batch_size=16)
 
-    epochs = 10
+    epochs = 1000000
     max_seq_len = 227
     accumulate = 8
     eval_every = 1
@@ -206,6 +220,7 @@ def main():
         for bdx, i_batch in enumerate(train_dataloader):
             img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             loss = 0
+            total_losses = 0.0
             optimizer.zero_grad()
 
             for _ in range(accumulate):
@@ -215,12 +230,15 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss += model(img, x, xm, return_loss=True)
+                stoch_loss, total_loss = model(img, x, xm, return_loss=True, stochastic_loss=True)
+                total_losses += total_loss
+                loss += stoch_loss
+                #loss += model(img, x, xm, return_loss=True, stochastic_loss=True)
             
-            running_loss += loss.item()
+            running_loss += total_losses
             loss.backward()
             optimizer.step()
-            print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
+            print('\tBatch #{}, Loss: {}'.format(bdx, total_losses))
 
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
         train_loss = running_loss
@@ -231,7 +249,7 @@ def main():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 for idx in range(2, len(saml[0])):
-                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
+                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True, stochastic_loss=False).item()
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
         with open('x_train.csv', 'a') as f:
@@ -239,8 +257,7 @@ def main():
         
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
-            with torch.no_grad():
-                saml = model.generate(feature, vocab, device=device)
+            saml = model.generate(feature, vocab, device=device)
             convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
 
         if best_loss is None or running_loss < best_loss:
