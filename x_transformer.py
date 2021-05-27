@@ -57,6 +57,8 @@ class XEncoder(nn.Module):
         self.encoder = ViTransformerWrapper(
             image_size=image_size,
             patch_size=patch_size,
+            emb_dropout=0.2,
+            dropout=0.2,
             attn_layers=Encoder(
                 dim=dim,
                 depth=depth,
@@ -80,6 +82,7 @@ class XDecoder(nn.Module):
             dim_in=dim_in,
             dim_out=dim_out,
             max_seq_len=max_seq_len,
+            emb_dropout=0.2,
             attn_layers=Decoder(
                 dim=dim,
                 depth=depth,
@@ -89,11 +92,13 @@ class XDecoder(nn.Module):
                 rel_pos_max_distance=32,
                 rotary_pos_emb=True,
                 use_scalenorm=True,
+                dropout=0.2
             ),
         )
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
         self.post_norm = nn.LayerNorm(dim)
+        self.post_drop = nn.Dropout(p=0.2)
         #self.to_classes = nn.Linear(emb_dim, num_layers)
         self.to_classes = nn.Linear(dim, num_layers)
         self.to_colors = nn.Linear(dim, 4)
@@ -109,6 +114,8 @@ class XDecoder(nn.Module):
         out = self.decoder(x, mask=mask, context=context)
         #emb_guess, col_guess, pos_guess = torch.split(out, [self.embedding.embedding_dim, 4,8], dim=-1)
         out = self.post_norm(out)
+        if self.training:
+            out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         col_guess = torch.sigmoid(col_guess)
         pos_guess = torch.tanh(pos_guess)
