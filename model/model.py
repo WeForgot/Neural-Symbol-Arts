@@ -22,7 +22,8 @@ from reformer_pytorch import Autopadder as ReformerAutopadder
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 from model.custom_perceiver import Perceiver
-from model.custom_gmlp import gMLPVision
+from model.custom_gmlp import gMLPVision, gMLPBlock
+from model.custom_nest import NesT
 #from glom_pytorch import Glom
 from model.custom_glom import Glom
 from model.fc import FCModel, SimpleConv
@@ -117,8 +118,11 @@ def make_torch_dec(dim, depth, heads):
 def make_mobilenet(dim):
     return MyMobileNetV3(dim)
 
+def make_nest(image_size, patch_size, dim, heads, channels=3, dropout=0.2):
+    return NesT(224, 4, 96, 3, 3, (8, 4, 1), channels=channels, dropout=dropout)
 
-possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder', 'gmlp']
+
+possible_encoders = ['vit', 'cvt', 'efficient', 'conv', 'style', 'mobilenet', 'glom', 'torch', 'perceiver', 'encoder', 'gmlp', 'nest']
 possible_decoders = ['decoder', 'routing', 'linear', 'reformer', 'torch']
 class EndToEndModel(nn.Module):
     def __init__(self, e_type, d_type, layer_count, image_size = 256, patch_size = 32, channels = 3,
@@ -171,6 +175,8 @@ class EndToEndModel(nn.Module):
             self.encoder = make_perceiver(channels, dim, e_depth)
         elif e_type == 'gmlp':
             self.encoder = make_gmlp(image_size, patch_size, dim, e_depth, channels)
+        elif e_type == 'nest':
+            self.encoder = make_nest(image_size, patch_size, dim, e_heads, channels=channels)
         else:
             raise TypeError('{} not among types {}'.format(e_type, possible_encoders))
         self.routing = False # Because routing transformers have an additional auxilary loss

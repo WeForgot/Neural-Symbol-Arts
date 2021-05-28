@@ -3,7 +3,7 @@ salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 -
 
 Runs:
 
-python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=vit --e_depth=2 --e_heads=8 --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
+python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=gmlp --e_depth=2 --e_heads=8 --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
 python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=cvt --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
 python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=style --e_depth=2 --e_heads=8 --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
 
@@ -16,3 +16,5 @@ python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --
 
 
 python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=glom --e_depth=2 --e_heads=8 --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
+
+python main.py --epochs 150 --patience=50 --batch_size=8 --batch_metrics=True --eval_every=1 --dim=32 --mlp_dim=32 --emb_dim=16 --e_type=nest --e_depth=2 --e_heads=8 --d_type=routing --d_depth=4 --d_heads=16 --patch_size=32 --valid_split=0.2 --accumulate_gradient=8 --name=small --fast_train=True --optimizer=adam --activations=True
