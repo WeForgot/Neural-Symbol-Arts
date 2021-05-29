@@ -308,7 +308,7 @@ def main(args):
         if loss_gating[2]:
             total_loss += valid_position_loss
         #total_loss = valid_emb_loss + valid_color_loss + valid_position_loss
-        print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}'.format(edx, total_loss/valid_divide_by, valid_emb_loss/valid_divide_by, valid_color_loss/valid_divide_by, valid_position_loss/valid_divide_by))
+        print('VALIDATION Epoch #{}, Total Loss: {}, Embedding Loss: {}, Color Loss: {}, Position Loss: {}, Patience: {}/{}'.format(edx, total_loss/valid_divide_by, valid_emb_loss/valid_divide_by, valid_color_loss/valid_divide_by, valid_position_loss/valid_divide_by, cur_patience, patience_gating[0]))
         valid_loss_array.append([edx, total_loss, total_loss/valid_divide_by, valid_emb_loss, valid_emb_loss/valid_divide_by, valid_color_loss, valid_color_loss/valid_divide_by, valid_position_loss, valid_position_loss/valid_divide_by])
         pd.DataFrame(np.asarray(valid_loss_array)).to_csv('{}_valid.csv'.format(name), header=['Epoch','Valid Total','Valid Total Average','Valid Layer Total','Valid Layer Average','Valid Color Total', 'Valid Color Average', 'Valid Position Total', 'Valid Position Average'], index=False)
         print('------------------------------------------------------------------------------------------------')
