@@ -26,9 +26,6 @@ def main():
     with open('data.pkl', 'rb') as f:
         data = pickle.load(f)
     
-    #model = VanillaVAE(in_channels=3, latent_dim=dim).to(device)
-    #model = BetaVAE(in_channels=3, latent_dim=dim).to(device)
-    #model = Autoencoder(dim).to(device)
     model = ResidualAutoencoder(192, 3, dim, layer_count=4).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     

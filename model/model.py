@@ -3,16 +3,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models as models
-
-from einops.layers.torch import Rearrange
 
 from vit_pytorch.dino import Dino
-from vit_pytorch.t2t import T2TViT
-from vit_pytorch.levit import LeViT
 from model.custom_cvt import CvT
-from vit_pytorch.rvt import RvT
-from nystrom_attention import Nystromformer
 from routing_transformer import RoutingTransformer
 from routing_transformer import Autopadder as RoutingAutopadder
 from linear_attention_transformer import LinearAttentionTransformer
@@ -22,17 +15,13 @@ from reformer_pytorch import Autopadder as ReformerAutopadder
 from model.style_model import StyleViT
 from model.custom_vit import ViT
 from model.custom_perceiver import Perceiver
-from model.custom_gmlp import gMLPVision, gMLPBlock
+from model.custom_gmlp import gMLPVision
 from model.custom_nest import NesT
-#from glom_pytorch import Glom
 from model.custom_glom import Glom
-from model.fc import FCModel, SimpleConv
 from model.torchformer import TorchEncoder, TorchDecoder
 from model.mobilenetv3 import MyMobileNetV3
 
-from x_transformers import ContinuousTransformerWrapper, Decoder, Encoder, ViTransformerWrapper
-from x_transformers.x_transformers import FeedForward
-from axial_positional_embedding import AxialPositionalEmbedding
+from x_transformers import ContinuousTransformerWrapper, Decoder
 
 def top_p(logits, thres = 0.9):
     sorted_logits, sorted_indices = torch.sort(logits, descending=True)

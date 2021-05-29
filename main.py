@@ -361,6 +361,7 @@ def main(args):
                 else:
                     raise ValueError('Something went wrong send help')
                 cur_patience = 0
+                best_loss = None
                 print('Out of patience. Moving on')
     
     # Save over current model with best model. Could do optimizer too but that just doesn't make sense to me?

@@ -99,7 +99,6 @@ class XDecoder(nn.Module):
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
-        #self.to_classes = nn.Linear(emb_dim, num_layers)
         self.to_classes = nn.Linear(dim, num_layers)
         self.to_colors = nn.Linear(dim, 4)
         self.to_positions = nn.Linear(dim, 8)
@@ -112,14 +111,11 @@ class XDecoder(nn.Module):
     def forward(self, saml, mask=None, context=None):
         x = self.embed_saml(saml)
         out = self.decoder(x, mask=mask, context=context)
-        #emb_guess, col_guess, pos_guess = torch.split(out, [self.embedding.embedding_dim, 4,8], dim=-1)
         out = self.post_norm(out)
-        if self.training:
-            out = self.post_drop(out)
+        out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         col_guess = torch.sigmoid(col_guess)
         pos_guess = torch.tanh(pos_guess)
-        #emb_guess = self.to_classes(emb_guess)
         return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
@@ -190,7 +186,7 @@ def main():
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
-    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 16, 'd_depth': 4, 'd_heads': 16}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
