@@ -229,7 +229,7 @@ def clamp_array(arr):
 
 
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 256, clamp_values: bool = False, reverse = False) -> np.ndarray:
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False, reverse = False) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
@@ -272,7 +272,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     else:
         saml_lines.append(eos_line)
     saml_mask.append(True)
-    while len(saml_lines) < max_length-1:
+    while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
         saml_mask.append(False)
     return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)

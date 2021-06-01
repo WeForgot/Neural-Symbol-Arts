@@ -63,8 +63,8 @@ class XEncoder(nn.Module):
                 dim=dim,
                 depth=depth,
                 heads=heads,
-                use_scalenorm=True,
-                rotary_pos_emb=True,
+                #use_scalenorm=True,
+                #rotary_pos_emb=True,
             )
         )
     
@@ -76,27 +76,26 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        dim_in = emb_dim + 12
-        dim_out = dim
         self.decoder = ContinuousTransformerWrapper(
-            dim_in=dim_in,
-            dim_out=dim_out,
+            dim_in=dim,
+            dim_out=dim,
             max_seq_len=max_seq_len,
             emb_dropout=0.2,
             attn_layers=Decoder(
                 dim=dim,
                 depth=depth,
                 heads=heads,
-                rel_pos_emb=True,
-                rel_pos_num_buckets=8,
-                rel_pos_max_distance=32,
-                rotary_pos_emb=True,
-                use_scalenorm=True,
+                #rotary_pos_emb=True,
+                #use_scalenorm=True,
                 dropout=0.2
             ),
         )
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
+        #self.pre_proj = nn.Linear(in_features=emb_dim+12, out_features=dim)
+        self.pre_proj = nn.LSTM(input_size=emb_dim+12, hidden_size=dim, num_layers=1, batch_first=True, bidirectional=True, dropout=0.2)
+        self.pre_norm = nn.LayerNorm(normalized_shape=dim)
+        self.pre_drop = nn.Dropout(p=0.2)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
         self.to_classes = nn.Linear(dim, num_layers)
@@ -110,12 +109,18 @@ class XDecoder(nn.Module):
     
     def forward(self, saml, mask=None, context=None):
         x = self.embed_saml(saml)
+        #x = self.pre_proj(x)
+        x, _ = self.pre_proj(x)
+        x = torch.stack(list(torch.chunk(x, 2, dim=-1)), dim=0)
+        x = torch.mean(x, dim=0)
+        x = self.pre_norm(x)
+        x = self.pre_drop(x)
         out = self.decoder(x, mask=mask, context=context)
         out = self.post_norm(out)
         out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
-        col_guess = torch.sigmoid(col_guess)
-        pos_guess = torch.tanh(pos_guess)
+        #col_guess = torch.sigmoid(col_guess)
+        #pos_guess = torch.tanh(pos_guess)
         return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
@@ -124,7 +129,7 @@ class NeuralTransformer(nn.Module):
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), emb_dim, max_seq_len, dim, d_depth, d_heads)
     
-    def forward(self, src, tgt, tgt_mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0, stochastic_loss=True):
+    def forward(self, src, tgt, tgt_mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
         features, labels = tgt[:,:-1,:], tgt[:,1:,:]
         fmask = None
@@ -133,21 +138,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            if stochastic_loss:
-                stoch_loss = torch.tensor(0.0).to(src.device)
-                emb_loss = F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
-                col_loss = F.mse_loss(col_guess, col_target) * col_alpha
-                pos_loss = F.mse_loss(pos_guess, pos_target) * pos_alpha
-                scalar_loss = emb_loss.item() + col_loss.item() + pos_loss.item()
-                if random.random() > 0.5:
-                    stoch_loss += emb_loss
-                if random.random() > 0.5:
-                    stoch_loss += col_loss
-                if random.random() > 0.5:
-                    stoch_loss += pos_loss
-                return stoch_loss, scalar_loss
-            else:
-                return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
+            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -184,9 +175,9 @@ def main():
         device = torch.device('cuda:0') if torch.cuda.device_count() > 0 else torch.device('cpu')
     if os.path.exists('x_train.csv'):
         os.remove('x_train.csv')
-    vocab, data = load_data(clamp_values=True)
+    vocab, data = load_data(clamp_values=False)
     random.shuffle(data)
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16}
+    x_settings = {'image_size': 224, 'patch_size': 32, 'dim': 32, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 8}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -223,7 +214,6 @@ def main():
         for bdx, i_batch in enumerate(train_dataloader):
             img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             loss = 0
-            total_losses = 0.0
             optimizer.zero_grad()
 
             for _ in range(accumulate):
@@ -233,15 +223,12 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                stoch_loss, total_loss = model(img, x, xm, return_loss=True, stochastic_loss=True)
-                total_losses += total_loss
-                loss += stoch_loss
-                #loss += model(img, x, xm, return_loss=True, stochastic_loss=True)
+                loss += model(img, x, xm, return_loss=True)
             
-            running_loss += total_losses
+            running_loss += loss.item()
             loss.backward()
             optimizer.step()
-            print('\tBatch #{}, Loss: {}'.format(bdx, total_losses))
+            print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
 
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
         train_loss = running_loss
@@ -251,8 +238,8 @@ def main():
         with torch.no_grad():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                for idx in range(2, len(saml[0])):
-                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True, stochastic_loss=False).item()
+                for idx in range(2, max_seq_len):
+                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
         with open('x_train.csv', 'a') as f:
@@ -261,7 +248,7 @@ def main():
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
             saml = model.generate(feature, vocab, device=device)
-            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
+            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=False)
 
         if best_loss is None or running_loss < best_loss:
             best_loss = running_loss
@@ -277,7 +264,7 @@ def main():
     model.load_state_dict(best_model)
     feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
     saml = model.generate(feature, vocab, device=device)
-    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
+    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=False)
     torch.save(best_model, 'best_model.pt')
 
 
