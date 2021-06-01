@@ -63,8 +63,7 @@ class XEncoder(nn.Module):
                 dim=dim,
                 depth=depth,
                 heads=heads,
-                #use_scalenorm=True,
-                #rotary_pos_emb=True,
+                ff_glu=True,
             )
         )
     
@@ -85,9 +84,10 @@ class XDecoder(nn.Module):
                 dim=dim,
                 depth=depth,
                 heads=heads,
-                #rotary_pos_emb=True,
-                #use_scalenorm=True,
-                dropout=0.2
+                rotary_pos_emb=True,
+                use_scalenorm=True,
+                dropout=0.2,
+                ff_glu=True,
             ),
         )
 
@@ -119,8 +119,8 @@ class XDecoder(nn.Module):
         out = self.post_norm(out)
         out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
-        #col_guess = torch.sigmoid(col_guess)
-        #pos_guess = torch.tanh(pos_guess)
+        col_guess = torch.sigmoid(col_guess)
+        pos_guess = torch.tanh(pos_guess)
         return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
@@ -175,7 +175,7 @@ def main():
         device = torch.device('cuda:0') if torch.cuda.device_count() > 0 else torch.device('cpu')
     if os.path.exists('x_train.csv'):
         os.remove('x_train.csv')
-    vocab, data = load_data(clamp_values=False)
+    vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
     x_settings = {'image_size': 224, 'patch_size': 32, 'dim': 32, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 8}
     model = NeuralTransformer(
@@ -248,7 +248,7 @@ def main():
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
             saml = model.generate(feature, vocab, device=device)
-            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=False)
+            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
 
         if best_loss is None or running_loss < best_loss:
             best_loss = running_loss
@@ -264,7 +264,7 @@ def main():
     model.load_state_dict(best_model)
     feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
     saml = model.generate(feature, vocab, device=device)
-    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=False)
+    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
     torch.save(best_model, 'best_model.pt')
 
 
