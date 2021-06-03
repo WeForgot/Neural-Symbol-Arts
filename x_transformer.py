@@ -159,7 +159,7 @@ class NeuralTransformer(nn.Module):
             mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
             emb_out, col_out, pos_out = self.decoder(x, mask, context)
             emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
-            filtered_logits = top_k_top_p_filtering(emb_out, top_k=5, top_p=0.8)
+            filtered_logits = top_k_top_p_filtering(emb_out, top_k=5)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
@@ -193,7 +193,7 @@ def main():
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 3, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 8}
+    x_settings = {'image_size': 192, 'patch_size': 32, 'dim': 64, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 16, 'd_depth': 4, 'd_heads': 8}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -212,9 +212,9 @@ def main():
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
 
-    
+    batch_size = 32
     train_dataset, valid_dataset = SADataset(train_split, img_size=192), SADataset(valid_split, img_size=192)
-    train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True), DataLoader(valid_dataset, batch_size=16)
+    train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
     # With AdamW
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
@@ -236,7 +236,6 @@ def main():
     for edx in range(epochs):
         running_loss = 0
         model.train()
-        emb_alpha = min(0.1 + edx/100, 1)
         for bdx, i_batch in enumerate(train_dataloader):
             img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             loss = 0
@@ -249,7 +248,7 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss += model(img, x, xm, return_loss=True, emb_alpha=emb_alpha)
+                loss += model(img, x, xm, return_loss=True)
             
             running_loss += loss.item()
             loss.backward()
