@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 from tqdm import tqdm
 
-from x_transformers import ContinuousTransformerWrapper, ViTransformerWrapper, Encoder, Decoder
+from model.custom_vit import ViT
 
 from model.datasets import SADataset
 from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image
@@ -54,17 +54,13 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = ViTransformerWrapper(
+        self.encoder = ViT(
             image_size=image_size,
             patch_size=patch_size,
-            emb_dropout=0.2,
-            dropout=0.2,
-            attn_layers=Encoder(
-                dim=dim,
-                depth=depth,
-                heads=heads,
-                ff_glu=True,
-            )
+            dim=dim,
+            depth=depth,
+            heads=heads,
+            mlp_dim=dim//2
         )
     
     def forward(self, x):
@@ -75,25 +71,20 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        self.decoder = ContinuousTransformerWrapper(
-            dim_in=dim,
-            dim_out=dim,
-            max_seq_len=max_seq_len,
-            emb_dropout=0.2,
-            attn_layers=Decoder(
-                dim=dim,
-                depth=depth,
-                heads=heads,
-                rotary_pos_emb=True,
-                use_scalenorm=True,
-                dropout=0.2,
-                ff_glu=True,
+        self.decoder = nn.TransformerDecoder(
+            nn.TransformerDecoderLayer(
+                d_model=dim,
+                nhead=heads,
+                dim_feedforward=dim//2,
+                activation='gelu',
+                batch_first=True
             ),
+            2,
+            nn.LayerNorm(normalized_shape=dim)
         )
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
-        #self.pre_proj = nn.Linear(in_features=emb_dim+12, out_features=dim)
-        self.pre_proj = nn.LSTM(input_size=emb_dim+12, hidden_size=dim, num_layers=1, batch_first=True, bidirectional=True, dropout=0.2)
+        self.pre_proj = nn.Linear(in_features=emb_dim+12, out_features=dim)
         self.pre_norm = nn.LayerNorm(normalized_shape=dim)
         self.pre_drop = nn.Dropout(p=0.2)
         self.post_norm = nn.LayerNorm(dim)
@@ -109,13 +100,9 @@ class XDecoder(nn.Module):
     
     def forward(self, saml, mask=None, context=None):
         x = self.embed_saml(saml)
-        #x = self.pre_proj(x)
-        x, _ = self.pre_proj(x)
-        x = torch.stack(list(torch.chunk(x, 2, dim=-1)), dim=0)
-        x = torch.mean(x, dim=0)
+        x = self.pre_proj(x)
         x = self.pre_norm(x)
-        x = self.pre_drop(x)
-        out = self.decoder(x, mask=mask, context=context)
+        out = self.decoder(tgt=x, tgt_key_padding_mask=~mask, memory=context)
         out = self.post_norm(out)
         out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
@@ -166,6 +153,17 @@ class NeuralTransformer(nn.Module):
             input_mask.append(True)
         return np.asarray(out)
 
+def piecewise_decay(epoch, steps, alphas):
+    assert len(steps) == len(alphas), 'In piecewise_decay: Both steps and alphas need to have the same number of elements'
+    steps, alphas = zip(*(sorted(zip(steps, alphas), reverse=True)))
+    for idx in range(len(steps)):
+        if epoch > steps[idx]:
+            return alphas[idx]
+    return 1
+
+def linear_decay(epoch, start, end):
+    return start + min(end, ((end-start)/float(epoch)))
+
 # The main function
 def main():
     debug = False # Debugging your model on CPU is leagues easier
@@ -177,7 +175,7 @@ def main():
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
-    x_settings = {'image_size': 224, 'patch_size': 32, 'dim': 32, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 8}
+    x_settings = {'image_size': 224, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -195,9 +193,18 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+
+    
     train_dataset, valid_dataset = SADataset(train_split, img_size=192), SADataset(valid_split, img_size=192)
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True), DataLoader(valid_dataset, batch_size=16)
+
+    # With AdamW
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    scheduler = None
+
+    # With SGD
+    #optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.5, weight_decay=0.01)
+    #scheduler = optim.lr_scheduler.CyclicLR(optimizer, 1e-4, 1e-2, len(train_dataloader) * 20, len(train_dataloader) * 80, 'triangular')
 
     epochs = 1000000
     max_seq_len = 227
@@ -211,6 +218,7 @@ def main():
     for edx in range(epochs):
         running_loss = 0
         model.train()
+        emb_alpha = min(0.1 + edx/100, 1)
         for bdx, i_batch in enumerate(train_dataloader):
             img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             loss = 0
@@ -223,11 +231,13 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss += model(img, x, xm, return_loss=True)
+                loss += model(img, x, xm, return_loss=True, emb_alpha=emb_alpha)
             
             running_loss += loss.item()
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
 
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
@@ -239,14 +249,15 @@ def main():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 for idx in range(2, max_seq_len):
-                    running_loss += model(img, saml[:idx], mask[:idx], return_loss=True).item()
+                    running_loss += model(img, saml[:,:idx], mask[:,:idx], return_loss=True).item()
+                
         
         print('Validation Epoch #{}, Loss: {}'.format(edx, running_loss))
         with open('x_train.csv', 'a') as f:
-            f.write('{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataset), running_loss/len(valid_dataset)))
+            f.write('{},{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataloader), running_loss/len(valid_dataloader)))
         
         if edx % eval_every == 0:
-            feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
+            feature = load_image('PleaseWorkHard.png', image_size=x_settings['image_size'])
             saml = model.generate(feature, vocab, device=device)
             convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
 
@@ -262,7 +273,7 @@ def main():
             break
 
     model.load_state_dict(best_model)
-    feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
+    feature = load_image('PleaseWorkHard.png', image_size=x_settings['image_size'])
     saml = model.generate(feature, vocab, device=device)
     convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
     torch.save(best_model, 'best_model.pt')
