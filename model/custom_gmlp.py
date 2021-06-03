@@ -153,7 +153,6 @@ class gMLP(nn.Module):
         self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act))) for i in range(depth)])
 
     def forward(self, x):
-        x = self.to_embed(x)
         layers = self.layers if not self.training else dropout_layers(self.layers, self.prob_survival)
         out = nn.Sequential(*layers)(x)
         return out

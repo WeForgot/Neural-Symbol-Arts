@@ -9,6 +9,7 @@ import skimage.io as io
 
 import torch
 import torch.nn as nn
+from torch.nn.modules.pooling import AdaptiveAvgPool2d
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -50,6 +51,24 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
         logits[indices_to_remove] = filter_value
     return logits
 
+class Residual(nn.Module):
+    def __init__(self, fn):
+        super(Residual, self).__init__()
+        self.fn = fn
+    
+    def forward(self, x):
+        return self.fn(x) + x
+
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
+        super(PreNorm,  self).__init__()
+        self.fn = fn
+        self.norm = nn.BatchNorm2d(dim)
+    
+    def forward(self, x):
+        x = self.norm(x)
+        return self.fn(x)
+
 # Model classes
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
@@ -79,7 +98,7 @@ class XDecoder(nn.Module):
                 activation='gelu',
                 batch_first=True
             ),
-            2,
+            num_layers,
             nn.LayerNorm(normalized_shape=dim)
         )
 
