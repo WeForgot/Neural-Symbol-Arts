@@ -94,11 +94,10 @@ class XDecoder(nn.Module):
             nn.TransformerDecoderLayer(
                 d_model=dim,
                 nhead=heads,
-                dim_feedforward=dim//2,
                 activation='gelu',
                 batch_first=True
             ),
-            num_layers,
+            depth,
             nn.LayerNorm(normalized_shape=dim)
         )
 
@@ -194,7 +193,7 @@ def main():
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=True)
     random.shuffle(data)
-    x_settings = {'image_size': 224, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 3, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 8}
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -209,7 +208,7 @@ def main():
     with open('best_model.json', 'w') as f:
         json.dump(x_settings, f, indent=3)
 
-    print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
+    print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model.encoder))))
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
 
