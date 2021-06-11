@@ -9,7 +9,6 @@ import skimage.io as io
 
 import torch
 import torch.nn as nn
-from torch.nn.modules.pooling import AdaptiveAvgPool2d
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -17,6 +16,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.custom_vit import ViT
+from routing_transformer import RoutingTransformer, Autopadder
+from linear_attention_transformer import LinearAttentionTransformer
+from linear_attention_transformer.autopadder import Autopadder as LinearAutopadder
 
 from model.datasets import SADataset
 from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image
@@ -51,24 +53,6 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
         logits[indices_to_remove] = filter_value
     return logits
 
-class Residual(nn.Module):
-    def __init__(self, fn):
-        super(Residual, self).__init__()
-        self.fn = fn
-    
-    def forward(self, x):
-        return self.fn(x) + x
-
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super(PreNorm,  self).__init__()
-        self.fn = fn
-        self.norm = nn.BatchNorm2d(dim)
-    
-    def forward(self, x):
-        x = self.norm(x)
-        return self.fn(x)
-
 # Model classes
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
@@ -79,7 +63,7 @@ class XEncoder(nn.Module):
             dim=dim,
             depth=depth,
             heads=heads,
-            mlp_dim=dim//2
+            mlp_dim=dim*2,
         )
     
     def forward(self, x):
@@ -90,16 +74,18 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        self.decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(
-                d_model=dim,
-                nhead=heads,
-                activation='gelu',
-                batch_first=True
-            ),
-            depth,
-            nn.LayerNorm(normalized_shape=dim)
-        )
+        self.decoder = Autopadder(RoutingTransformer(
+            dim=dim,
+            depth=depth,
+            heads=heads,
+            max_seq_len=256,
+            local_attn_window_size=32,
+            causal=True,
+            attn_layer_dropout=0.1,
+            layer_dropout=0.1,
+            ff_glu=True,
+            receives_context=True
+        ))
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
         self.pre_proj = nn.Linear(in_features=emb_dim+12, out_features=dim)
@@ -120,13 +106,15 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.pre_proj(x)
         x = self.pre_norm(x)
-        out = self.decoder(tgt=x, tgt_key_padding_mask=~mask, memory=context)
+        out, aux = self.decoder(x, context=context, input_mask=mask)
         out = self.post_norm(out)
         out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
-        col_guess = torch.sigmoid(col_guess)
-        pos_guess = torch.tanh(pos_guess)
-        return emb_guess, col_guess, pos_guess
+        col_guess = F.relu(col_guess)
+        pos_guess = F.relu(pos_guess)
+        #col_guess = F.sigmoid(col_guess)
+        #pos_guess = F.sigmoid(pos_guess)
+        return emb_guess, col_guess, pos_guess, aux
 
 class NeuralTransformer(nn.Module):
     def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, emb_dim, d_depth, d_heads, max_seq_len=227):
@@ -140,14 +128,14 @@ class NeuralTransformer(nn.Module):
         fmask = None
         if tgt_mask is not None:
             fmask = tgt_mask[:,:-1]
-        emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
+        emb_guess, col_guess, pos_guess, aux = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
+            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha + aux
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
-    def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=225, temperature = 1.0, device=None) -> np.ndarray:
+    def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=226, temperature = 1.0, device=None) -> np.ndarray:
         if len(src.shape) == 3:
             src = src.unsqueeze(0).to(device)
         context = self.encoder(src)
@@ -157,7 +145,7 @@ class NeuralTransformer(nn.Module):
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
             x = torch.tensor(out).unsqueeze(0).to(device)
             mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
-            emb_out, col_out, pos_out = self.decoder(x, mask, context)
+            emb_out, col_out, pos_out, _ = self.decoder(x, mask, context)
             emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
             filtered_logits = top_k_top_p_filtering(emb_out, top_k=5)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
@@ -184,6 +172,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
+    x_settings = {'image_size': 128, 'patch_size': 32, 'dim': 32, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -191,9 +180,9 @@ def main():
         device = torch.device('cuda:0') if torch.cuda.device_count() > 0 else torch.device('cpu')
     if os.path.exists('x_train.csv'):
         os.remove('x_train.csv')
-    vocab, data = load_data(clamp_values=True)
+    vocab, data = load_data(clamp_values=x_settings['clamped_values'])
     random.shuffle(data)
-    x_settings = {'image_size': 192, 'patch_size': 32, 'dim': 64, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 16, 'd_depth': 4, 'd_heads': 8}
+    
     model = NeuralTransformer(
         image_size=x_settings['image_size'],
         patch_size=x_settings['patch_size'],
@@ -213,7 +202,7 @@ def main():
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
 
     batch_size = 32
-    train_dataset, valid_dataset = SADataset(train_split, img_size=192), SADataset(valid_split, img_size=192)
+    train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
     # With AdamW
@@ -274,9 +263,9 @@ def main():
             f.write('{},{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataloader), running_loss/len(valid_dataloader)))
         
         if edx % eval_every == 0:
-            feature = load_image('PleaseWorkHard.png', image_size=x_settings['image_size'])
+            feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
             saml = model.generate(feature, vocab, device=device)
-            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
+            convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=x_settings['clamped_values'])
 
         if best_loss is None or running_loss < best_loss:
             best_loss = running_loss
@@ -290,9 +279,9 @@ def main():
             break
 
     model.load_state_dict(best_model)
-    feature = load_image('PleaseWorkHard.png', image_size=x_settings['image_size'])
+    feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
     saml = model.generate(feature, vocab, device=device)
-    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=True)
+    convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=x_settings['clamped_values'])
     torch.save(best_model, 'best_model.pt')
 
 
