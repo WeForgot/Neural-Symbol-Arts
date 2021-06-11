@@ -267,6 +267,10 @@ def main():
             saml = model.generate(feature, vocab, device=device)
             convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=x_settings['clamped_values'])
 
+            feature = train_dataset[0]['feature']
+            saml = model.generate(feature, vocab, device=device)
+            convert_numpy_to_saml(saml, vocab, name='xtraintransform', values_clamped=x_settings['clamped_values'])
+
         if best_loss is None or running_loss < best_loss:
             best_loss = running_loss
             best_model = model.state_dict()
