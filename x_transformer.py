@@ -84,7 +84,8 @@ class XDecoder(nn.Module):
             attn_layer_dropout=0.1,
             layer_dropout=0.1,
             ff_glu=True,
-            receives_context=True
+            receives_context=True,
+            reversible=True
         ))
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -172,7 +173,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 128, 'patch_size': 32, 'dim': 32, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 128, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 12, 'd_heads': 32, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
