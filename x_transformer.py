@@ -17,8 +17,6 @@ from tqdm import tqdm
 
 from model.custom_vit import ViT
 from routing_transformer import RoutingTransformer, Autopadder
-from linear_attention_transformer import LinearAttentionTransformer
-from linear_attention_transformer.autopadder import Autopadder as LinearAutopadder
 
 from model.datasets import SADataset
 from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image
@@ -94,9 +92,36 @@ class XDecoder(nn.Module):
         self.pre_drop = nn.Dropout(p=0.2)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
-        self.to_classes = nn.Linear(dim, num_layers)
-        self.to_colors = nn.Linear(dim, 4)
-        self.to_positions = nn.Linear(dim, 8)
+        #self.to_classes = nn.Linear(dim, num_layers)
+        self.to_classes = nn.Sequential(
+            nn.Linear(dim, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, num_layers)
+        )
+        self.to_colors = nn.Sequential(
+            nn.Linear(dim, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, 4)
+        )
+        self.to_positions = nn.Sequential(
+            nn.Linear(dim, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, dim*2),
+            nn.LayerNorm(normalized_shape=dim*2),
+            nn.GELU(),
+            nn.Linear(dim*2, 8)
+        )
+        #self.to_colors = nn.Linear(dim, 4)
+        #self.to_positions = nn.Linear(dim, 8)
     
     def embed_saml(self, saml):
         x, y = torch.split(saml, [1, 12], dim=-1)
@@ -173,7 +198,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 128, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 12, 'd_heads': 32, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 256, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 16, 'd_heads': 32, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -207,11 +232,11 @@ def main():
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-2)
     scheduler = None
 
     # With SGD
-    #optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.5, weight_decay=0.01)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9, weight_decay=0.01)
     #scheduler = optim.lr_scheduler.CyclicLR(optimizer, 1e-4, 1e-2, len(train_dataloader) * 20, len(train_dataloader) * 80, 'triangular')
 
     epochs = 1000000
@@ -245,12 +270,14 @@ def main():
             optimizer.step()
             if scheduler is not None:
                 scheduler.step()
+            
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
 
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
         train_loss = running_loss
         model.eval()
         running_loss = 0
+        
 
         with torch.no_grad():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
@@ -279,7 +306,7 @@ def main():
         else:
             patience += 1
 
-        if patience > 50:
+        if patience > 20:
             print('Out of patience')
             break
 
