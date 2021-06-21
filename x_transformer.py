@@ -1,5 +1,6 @@
 # Imports
 import json
+from model.custom_gmlp import gMLPVision
 import os
 import random
 
@@ -17,6 +18,7 @@ from tqdm import tqdm
 
 from model.custom_vit import ViT
 from routing_transformer import RoutingTransformer, Autopadder
+from vit_pytorch import Dino
 
 from model.datasets import SADataset
 from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image
@@ -55,14 +57,24 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = ViT(
-            image_size=image_size,
-            patch_size=patch_size,
-            dim=dim,
-            depth=depth,
-            heads=heads,
-            mlp_dim=dim*2,
+        self.encoder = gMLPVision(
+            image_size = image_size,
+            patch_size = patch_size,
+            dim = dim,
+            depth = depth,
+            attn_dim = 64,
+            prob_survival = 0.9
         )
+        #self.encoder = ViT(
+        #    image_size = image_size,
+        #    patch_size = patch_size,
+        #    dim = dim,
+        #    depth = depth,
+        #    heads = heads,
+        #    mlp_dim = dim * 2,
+        #    dropout = 0.1,
+        #    emb_dropout = 0.1
+        #)
     
     def forward(self, x):
         x = self.encoder(x)
@@ -97,27 +109,33 @@ class XDecoder(nn.Module):
             nn.Linear(dim, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, num_layers)
         )
         self.to_colors = nn.Sequential(
             nn.Linear(dim, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, 4)
         )
         self.to_positions = nn.Sequential(
             nn.Linear(dim, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(dim*2, 8)
         )
         #self.to_colors = nn.Linear(dim, 4)
@@ -196,9 +214,70 @@ def piecewise_decay(epoch, steps, alphas):
 def linear_decay(epoch, start, end):
     return start + min(end, ((end-start)/float(epoch)))
 
+def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 100, max_patience = 10, batch_metrics=True):
+    learner = Dino(
+        model,
+        image_size = image_size,
+        hidden_layer= 'to_latent',
+    ).to(device)
+
+    opt = optim.AdamW(learner.parameters(), lr=3e-4)
+
+    train_dataloder = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
+    valid_dataloader = DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
+    
+    best_loss = None
+    best_model = None
+    patience = 0
+
+    for edx in range(max_epochs):
+        model.train()
+        learner.train()
+        running_loss = 0.0
+        for bdx, i_batch in enumerate(train_dataloder):
+            img = i_batch['feature'].to(device)
+            loss = learner(img)
+            running_loss += loss.item()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            learner.update_moving_average()
+            if batch_metrics:
+                print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
+        
+        print('TRAINING Epoch #{}, Total Loss: {}'.format(edx, running_loss))
+
+        model.eval()
+        learner.eval()
+        running_loss = 0.0
+        with torch.no_grad():
+            for bdx, i_batch in enumerate(valid_dataloader):
+                img = i_batch['feature'].to(device)
+                loss = learner(img)
+                running_loss += loss.item()
+        
+        if best_loss is None or running_loss < best_loss:
+            best_loss = running_loss
+            best_model = model.state_dict()
+            patience = 0
+        else:
+            patience += 1
+        
+        print('VALIDATION Epoch #{}, Total Loss: {}, Patience: {}'.format(edx, running_loss, patience))
+
+        if patience > max_patience:
+            print('Out of patience')
+            break
+    
+    model.load_state_dict(best_model)
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
+
+
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 256, 'e_depth': 2, 'e_heads': 16, 'emb_dim': 8, 'd_depth': 16, 'd_heads': 32, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 64, 'e_depth': 2, 'e_heads': 8, 'emb_dim': 8, 'd_depth': 8, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -223,13 +302,15 @@ def main():
     with open('best_model.json', 'w') as f:
         json.dump(x_settings, f, indent=3)
 
-    print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model.encoder))))
+    print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
 
     batch_size = 32
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
+
+    model.encoder.encoder = pretrain_encoder(model.encoder.encoder, x_settings['image_size'], train_dataset, valid_dataset, device)
 
     # With AdamW
     optimizer = optim.AdamW(model.parameters(), lr=1e-2)

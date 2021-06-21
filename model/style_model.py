@@ -18,18 +18,17 @@ class DepthWiseConv2d(nn.Module):
 class StyleFormer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.0):
         super().__init__()
-        self.layer_norm = nn.LayerNorm(dim, elementwise_affine=False)
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                nn.InstanceNorm1d(dim),
+                nn.LayerNorm(dim),
                 PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
             ]))
 
     def forward(self, x, styles):
         for idx, (ln, attn, ff) in enumerate(self.layers):
-            x = x + ln(styles[idx])
+            x = ln(x + styles[idx])
             x = attn(x)
             x = ff(x) + x
         return x
