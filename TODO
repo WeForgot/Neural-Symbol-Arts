@@ -1,5 +1,5 @@
-salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 --time=4:00:00 srun --pty /bin/bash --login
-salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:1 --time=10:00:00 srun --pty /bin/bash --login
+salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:v100:1 --time=4:00:00 srun --pty /bin/bash --login
+salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=32 --mem=32G --gres=gpu:v100:1 --time=10:00:00 srun --pty /bin/bash --login
 
 Runs:
 

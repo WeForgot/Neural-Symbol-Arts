@@ -103,6 +103,7 @@ class XDecoder(nn.Module):
                 depth = depth,
                 heads = heads,
                 rotary_pos_emb = True,
+                ff_glu = True,
             )
         )
 
@@ -216,9 +217,9 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
     ).to(device)
 
 
-    #opt = optim.AdamW(learner.parameters(), lr=1e-2, weight_decay=1e-4)
+    opt = optim.AdamW(learner.parameters(), lr=1e-2, weight_decay=1e-4)
     #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0=125)
-    opt = optim.SGD(learner.parameters(), lr=1e-2, momentum=0.9)
+    #opt = optim.SGD(learner.parameters(), lr=1e-2, momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0 = 125)
 
     train_dataloder = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -280,7 +281,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 128, 'e_depth': 4, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 8, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 128, 'e_depth': 4, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -313,7 +314,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device)
+    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
@@ -393,7 +394,7 @@ def main():
         
         print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss/len(valid_dataloader), patience))
 
-        if patience > 20:
+        if patience > 50:
             print('Out of patience')
             break
 
