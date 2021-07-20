@@ -92,8 +92,19 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
-        self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+        #decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
+        #self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+        self.decoder = ContinuousTransformerWrapper(
+            dim_in = dim,
+            dim_out = dim,
+            max_seq_len = max_seq_len,
+            attn_layers = Decoder(
+                dim = dim,
+                depth = depth,
+                heads = heads,
+                rotary_pos_emb = True,
+            )
+        )
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -134,8 +145,8 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.pre_proj(x)
         x = self.pre_norm(x)
-        #out = self.decoder(x, context=context, mask=mask)
-        out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
+        out = self.decoder(x, context=context, mask=mask)
+        #out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
         out = self.post_norm(out)
         out = self.post_drop(out)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
