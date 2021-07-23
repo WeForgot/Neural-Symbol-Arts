@@ -16,7 +16,10 @@ from tqdm import tqdm
 
 from byol_pytorch import BYOL
 from model.mobilenetv3 import mobilenet_v3_small
-from x_transformers import ContinuousTransformerWrapper, Decoder
+#from model.custom_gmlp import gMLPVision
+#from x_transformers import ContinuousTransformerWrapper, Decoder
+from linear_attention_transformer import LinearAttentionTransformer
+from linear_attention_transformer.autopadder import Autopadder
 
 
 from model.datasets import SADataset
@@ -94,6 +97,7 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         #decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
         #self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+        '''
         self.decoder = ContinuousTransformerWrapper(
             dim_in = dim,
             dim_out = dim,
@@ -106,6 +110,22 @@ class XDecoder(nn.Module):
                 ff_glu = True,
             )
         )
+        '''
+        self.decoder = Autopadder(LinearAttentionTransformer(
+            dim = dim,
+            depth = depth,
+            max_seq_len = max_seq_len,
+            heads = heads,
+            causal = True,
+            ff_glu = True,
+            reversible = True,
+            receives_context = True,
+            local_attn_window_size = 32,
+            n_local_attn_heads = heads,
+            attn_dropout = 0.1,
+            attn_layer_dropout = 0.1,
+            ff_dropout = 0.1
+        ))
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -146,7 +166,8 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.pre_proj(x)
         x = self.pre_norm(x)
-        out = self.decoder(x, context=context, mask=mask)
+        #out = self.decoder(x, context=context, mask=mask)
+        out = self.decoder(x, context=context, intput_mask=mask)
         #out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
         out = self.post_norm(out)
         out = self.post_drop(out)
@@ -281,7 +302,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 128, 'e_depth': 4, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -314,19 +335,19 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
     #optimizer = optim.Adam(model.parameters(), lr=1e-2)
-    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
-    #optimizer = AdaBelief(model.parameters(), lr=1e-2, weight_decay=1e-4, print_change_log=False)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    optimizer = AdaBelief(model.parameters(), lr=1e-2, weight_decay=1e-4, print_change_log=False)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=125)
 
     epochs = 1000000
     max_seq_len = 227
-    accumulate = 9
+    accumulate = 6
     eval_every = 1
     idxs = []
     patience = 0
