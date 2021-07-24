@@ -198,7 +198,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
+            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -309,7 +309,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 256, 'e_depth': 2, 'e_heads': 6, 'emb_dim':16, 'd_depth': 12, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 6, 'emb_dim':4, 'd_depth': 2, 'd_heads': 8, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -342,7 +342,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
@@ -376,11 +376,11 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss += model(img, x, xm, return_loss=True)
-            loss /= accumulate
-            
-            running_loss += loss.item()
-            loss.backward()
+                loss = model(img, x, xm, return_loss=True)
+                loss.backward()
+                running_loss += loss.item()
+                
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             scheduler.step()
             
