@@ -15,8 +15,8 @@ from adabelief_pytorch import AdaBelief
 from tqdm import tqdm
 
 from byol_pytorch import BYOL
-from model.mobilenetv3 import mobilenet_v3_small
-#from model.custom_gmlp import gMLPVision
+#from model.mobilenetv3 import mobilenet_v3_small
+from model.custom_gmlp import gMLPVision
 #from x_transformers import ContinuousTransformerWrapper, Decoder
 from linear_attention_transformer import LinearAttentionTransformer
 from linear_attention_transformer.autopadder import Autopadder
@@ -84,7 +84,15 @@ class Permute(nn.Module):
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = mobilenet_v3_small(dim)
+        #self.encoder = mobilenet_v3_small(dim)
+        self.encoder = gMLPVision(
+            image_size = image_size,
+            patch_size = patch_size,
+            dim = dim,
+            depth = depth,
+            channels = 3,
+            prob_survival = 0.9
+        )
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -120,11 +128,10 @@ class XDecoder(nn.Module):
             ff_glu = True,
             reversible = True,
             receives_context = True,
-            local_attn_window_size = 32,
-            n_local_attn_heads = heads,
+            local_attn_window_size = 128,
             attn_dropout = 0.1,
             attn_layer_dropout = 0.1,
-            ff_dropout = 0.1
+            ff_dropout = 0.1,
         ))
 
 
@@ -238,7 +245,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
     ).to(device)
 
 
-    opt = optim.AdamW(learner.parameters(), lr=1e-2, weight_decay=1e-4)
+    opt = AdaBelief(learner.parameters(), lr=1e-2, weight_decay=1e-5, print_change_log=False)
     #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0=125)
     #opt = optim.SGD(learner.parameters(), lr=1e-2, momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0 = 125)
@@ -295,14 +302,14 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
             break
     
     model.load_state_dict(best_model)
-    for param in model.parameters():
-        param.requires_grad = False
+    #for param in model.parameters():
+    #    param.requires_grad = False
     return model
 
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 256, 'e_depth': 2, 'e_heads': 6, 'emb_dim':16, 'd_depth': 12, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -335,7 +342,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
@@ -369,7 +376,7 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss += model(img, x, xm, emb_alpha=0.1, return_loss=True)
+                loss += model(img, x, xm, return_loss=True)
             loss /= accumulate
             
             running_loss += loss.item()
@@ -413,7 +420,7 @@ def main():
         else:
             patience += 1
         
-        print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss/len(valid_dataloader), patience))
+        print('Validation Epoch #{}, Loss: {}, Patience: {}/50'.format(edx, running_loss/len(valid_dataloader), patience))
 
         if patience > 50:
             print('Out of patience')
