@@ -14,8 +14,9 @@ from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
 
-from byol_pytorch import BYOL
+#from byol_pytorch import BYOL
 #from model.mobilenetv3 import mobilenet_v3_small
+from vit_pytorch import Dino
 from model.custom_gmlp import gMLPVision
 #from x_transformers import ContinuousTransformerWrapper, Decoder
 from linear_attention_transformer import LinearAttentionTransformer
@@ -238,7 +239,7 @@ def linear_decay(epoch, start, end):
     return start + min(end, ((end-start)/float(epoch)))
 
 def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 500, max_patience = 5, batch_metrics=True):
-    learner = BYOL(
+    learner = Dino(
         model,
         image_size = image_size,
         hidden_layer= 'to_latent',
@@ -302,8 +303,8 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
             break
     
     model.load_state_dict(best_model)
-    #for param in model.parameters():
-    #    param.requires_grad = False
+    for param in model.parameters():
+        param.requires_grad = False
     return model
 
 
@@ -342,7 +343,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
@@ -379,7 +380,7 @@ def main():
                 loss = model(img, x, xm, return_loss=True)
                 loss.backward()
                 running_loss += loss.item()
-                
+
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             scheduler.step()
