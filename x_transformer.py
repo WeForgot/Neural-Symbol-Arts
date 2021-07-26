@@ -125,7 +125,7 @@ class XDecoder(nn.Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
-                rotary_pos_emb = True,
+                rel_pos_bias = True,
                 ff_glu = True,
                 cross_attend = True
             )
