@@ -18,9 +18,8 @@ from tqdm import tqdm
 #from model.mobilenetv3 import mobilenet_v3_small
 from vit_pytorch import Dino
 from model.custom_vit import ViT
-#from x_transformers import ContinuousTransformerWrapper, Decoder
-from linear_attention_transformer import LinearAttentionTransformer
-from linear_attention_transformer.autopadder import Autopadder
+from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
+
 
 
 from model.datasets import SADataset
@@ -96,7 +95,15 @@ class XEncoder(nn.Module):
             prob_survival = 0.9
         )
         '''
-        self.encoder = ViT(image_size = image_size, patch_size = patch_size, dim = dim, depth = depth, heads = heads, mlp_dim = 1)
+        self.encoder = ViTransformerWrapper(
+            image_size = image_size,
+            patch_size = patch_size,
+            attn_layers = Encoder(
+                dim = dim,
+                depth = depth,
+                heads = heads
+            )
+        )
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -109,7 +116,6 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         #decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
         #self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
-        '''
         self.decoder = ContinuousTransformerWrapper(
             dim_in = dim,
             dim_out = dim,
@@ -120,23 +126,9 @@ class XDecoder(nn.Module):
                 heads = heads,
                 rotary_pos_emb = True,
                 ff_glu = True,
+                cross_attend = True
             )
         )
-        '''
-        self.decoder = Autopadder(LinearAttentionTransformer(
-            dim = dim,
-            depth = depth,
-            max_seq_len = max_seq_len,
-            heads = heads,
-            causal = True,
-            ff_glu = True,
-            reversible = True,
-            receives_context = True,
-            local_attn_window_size = 128,
-            attn_dropout = 0.1,
-            attn_layer_dropout = 0.1,
-            ff_dropout = 0.1,
-        ))
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -177,8 +169,8 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.pre_proj(x)
         x = self.pre_norm(x)
-        #out = self.decoder(x, context=context, mask=mask)
-        out = self.decoder(x, context=context, intput_mask=mask)
+        out = self.decoder(x, context=context, mask=mask)
+        #out = self.decoder(x, context=context, intput_mask=mask)
         #out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
         out = self.post_norm(out)
         out = self.post_drop(out)
@@ -348,7 +340,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
