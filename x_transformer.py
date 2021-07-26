@@ -101,7 +101,8 @@ class XEncoder(nn.Module):
             attn_layers = Encoder(
                 dim = dim,
                 depth = depth,
-                heads = heads
+                heads = heads,
+                ff_glu = True
             )
         )
         self.to_latent = nn.Identity()
@@ -340,12 +341,12 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
+    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
