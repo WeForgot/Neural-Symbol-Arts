@@ -152,7 +152,8 @@ class MobileNetV3(nn.Module):
                                        norm_layer=norm_layer, activation_layer=nn.Hardswish))
 
         self.features = nn.Sequential(*layers)
-        self.to_proj = nn.LazyLinear(out_dim)
+        #self.to_proj = nn.LazyLinear(out_dim)
+        self.to_proj = nn.Conv2d(in_channels = lastconv_output_channels, out_channels = out_dim, kernel_size = 1)
         self.to_latent = nn.Identity()
 
         '''
@@ -172,8 +173,7 @@ class MobileNetV3(nn.Module):
 
     def _forward_impl(self, x: Tensor) -> Tensor:
         x = self.features(x)
-        x = x.permute(0,2,3,1)
-        x = torch.flatten(x, 1, 2)
+        #x = torch.flatten(x, 1, 2)
         x = self.to_proj(x)
         return x
 

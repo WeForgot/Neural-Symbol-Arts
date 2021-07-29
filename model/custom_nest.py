@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 from torch import nn, einsum
 
@@ -9,24 +10,14 @@ from einops.layers.torch import Rearrange, Reduce
 def cast_tuple(val, depth):
     return val if isinstance(val, tuple) else ((val,) * depth)
 
+LayerNorm = partial(nn.InstanceNorm2d, affine = True)
+
 # classes
-
-class ChanNorm(nn.Module):
-    def __init__(self, dim, eps = 1e-5):
-        super().__init__()
-        self.eps = eps
-        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
-        self.b = nn.Parameter(torch.zeros(1, dim, 1, 1))
-
-    def forward(self, x):
-        std = torch.var(x, dim = 1, unbiased = False, keepdim = True).sqrt()
-        mean = torch.mean(x, dim = 1, keepdim = True)
-        return (x - mean) / (std + self.eps) * self.g + self.b
 
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
-        self.norm = ChanNorm(dim)
+        self.norm = LayerNorm(dim)
         self.fn = fn
 
     def forward(self, x, **kwargs):
@@ -78,8 +69,8 @@ class Attention(nn.Module):
 def Aggregate(dim, dim_out):
     return nn.Sequential(
         nn.Conv2d(dim, dim_out, 3, padding = 1),
-        ChanNorm(dim_out),
-        nn.MaxPool2d(2)
+        LayerNorm(dim_out),
+        nn.MaxPool2d(3, stride = 2, padding = 1)
     )
 
 class Transformer(nn.Module):
@@ -108,11 +99,13 @@ class Transformer(nn.Module):
 class NesT(nn.Module):
     def __init__(
         self,
+        *,
         image_size,
         patch_size,
+        num_classes,
         dim,
         heads,
-        num_heirarchies,
+        num_hierarchies,
         block_repeats,
         mlp_mult = 4,
         channels = 3,
@@ -124,11 +117,11 @@ class NesT(nn.Module):
         num_patches = (image_size // patch_size) ** 2
         patch_dim = channels * patch_size ** 2
         fmap_size = image_size // patch_size
-        blocks = 2 ** (num_heirarchies - 1)
+        blocks = 2 ** (num_hierarchies - 1)
 
         seq_len = (fmap_size // blocks) ** 2   # sequence length is held constant across heirarchy
-        heirarchies = list(reversed(range(num_heirarchies)))
-        mults = [2 ** i for i in heirarchies]
+        hierarchies = list(reversed(range(num_hierarchies)))
+        mults = [2 ** i for i in hierarchies]
 
         layer_heads = list(map(lambda t: t * heads, mults))
         layer_dims = list(map(lambda t: t * dim, mults))
@@ -141,11 +134,11 @@ class NesT(nn.Module):
             nn.Conv2d(patch_dim, layer_dims[0], 1),
         )
 
-        block_repeats = cast_tuple(block_repeats, num_heirarchies)
+        block_repeats = cast_tuple(block_repeats, num_hierarchies)
 
         self.layers = nn.ModuleList([])
 
-        for level, heads, (dim_in, dim_out), block_repeat in zip(heirarchies, layer_heads, dim_pairs, block_repeats):
+        for level, heads, (dim_in, dim_out), block_repeat in zip(hierarchies, layer_heads, dim_pairs, block_repeats):
             is_last = level == 0
             depth = block_repeat
 
@@ -154,19 +147,23 @@ class NesT(nn.Module):
                 Aggregate(dim_in, dim_out) if not is_last else nn.Identity()
             ]))
 
-        self.to_latent = nn.Identity()
+        self.mlp_head = nn.Sequential(
+            LayerNorm(dim),
+            Reduce('b c h w -> b c', 'mean'),
+            nn.Linear(dim, num_classes)
+        )
 
     def forward(self, img):
         x = self.to_patch_embedding(img)
         b, c, h, w = x.shape
 
-        num_heirarchies = len(self.layers)
+        num_hierarchies = len(self.layers)
 
-        for level, (transformer, aggregate) in zip(reversed(range(num_heirarchies)), self.layers):
+        for level, (transformer, aggregate) in zip(reversed(range(num_hierarchies)), self.layers):
             block_size = 2 ** level
             x = rearrange(x, 'b c (b1 h) (b2 w) -> (b b1 b2) c h w', b1 = block_size, b2 = block_size)
             x = transformer(x)
             x = rearrange(x, '(b b1 b2) c h w -> b c (b1 h) (b2 w)', b1 = block_size, b2 = block_size)
             x = aggregate(x)
 
-        return self.to_latent(x)
+        return self.mlp_head(x)

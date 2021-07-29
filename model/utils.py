@@ -236,17 +236,10 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
     root = ETO.fromstring(''.join(all_lines))
-    sos_line = [vocab['<SOS>']] + [0] * 12
-    eos_line = [vocab['<EOS>']] + [0] * 12
     pad_line = [vocab['<PAD>']] + [0] * 12
     saml_lines = []
     saml_mask = []
-    if reverse:
-        saml_lines.append(eos_line)
-    else:
-        saml_lines.append(sos_line)
     saml_mask.append(True)
-    max_length += 2 # We are adding the SOS and EOS tokens
     for ldx, layer in enumerate(root):
         attribs = layer.attrib
         layer_type = attribs['type']
@@ -268,11 +261,6 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-    if reverse:
-        saml_lines.append(sos_line)
-        saml_lines.reverse()
-    else:
-        saml_lines.append(eos_line)
     saml_mask.append(True)
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
