@@ -105,7 +105,7 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         self.dim = dim
 
-        self.pos_embs = nn.parameter.Parameter(torch.zeros((max_seq_len, dim)), requires_grad=True)
+        self.pos_embs = nn.parameter.Parameter(torch.randn((max_seq_len, dim)), requires_grad=False)
         self.decoder = ContinuousTransformerWrapper(
             max_seq_len = 225,
             attn_layers = Decoder(
@@ -113,7 +113,7 @@ class XDecoder(nn.Module):
                 depth = depth,
                 heads = heads,
                 cross_attend = True,
-                position_infused_attn = True
+                cross_only = True
             ),
             dim_out = dim
         )
@@ -130,7 +130,6 @@ class XDecoder(nn.Module):
             nn.GELU(),
             nn.Dropout(0.1),
             nn.Linear(dim*2, num_layers),
-            nn.Softmax(dim = -1)
         )
         self.to_colors = nn.Sequential(
             nn.Linear(dim, dim*2),
@@ -142,7 +141,6 @@ class XDecoder(nn.Module):
             nn.GELU(),
             nn.Dropout(0.1),
             nn.Linear(dim*2, 4),
-            nn.Sigmoid()
         )
         self.to_positions = nn.Sequential(
             nn.Linear(dim, dim*2),
@@ -154,13 +152,12 @@ class XDecoder(nn.Module):
             nn.GELU(),
             nn.Dropout(0.1),
             nn.Linear(dim*2, 8),
-            nn.Sigmoid()
         )
     
     def forward(self, context):
         b = context.shape[0]
         x = self.pos_embs.repeat(b, 1, 1)
-        out = self.decoder(x,context=context)
+        out = self.decoder(x,context=context, return_embeddings=True)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
