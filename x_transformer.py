@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 #from byol_pytorch import BYOL
 from model.mobilenetv3 import mobilenet_v3_small
-from reformer_pytorch import Reformer, Autopadder
+from routing_transformer import RoutingTransformer, Autopadder
 from vit_pytorch import Dino
 from model.custom_vit import ViT
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
@@ -105,7 +105,7 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         self.dim = dim
 
-        self.pos_embs = nn.parameter.Parameter(torch.randn((max_seq_len, dim)), requires_grad=False)
+        self.pos_embs = nn.parameter.Parameter(torch.randn((max_seq_len, dim)), requires_grad=True)
         self.decoder = ContinuousTransformerWrapper(
             max_seq_len = 225,
             attn_layers = Decoder(
@@ -113,7 +113,6 @@ class XDecoder(nn.Module):
                 depth = depth,
                 heads = heads,
                 cross_attend = True,
-                cross_only = True
             ),
             dim_out = dim
         )
@@ -125,10 +124,6 @@ class XDecoder(nn.Module):
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
             nn.Dropout(0.1),
-            nn.Linear(dim*2, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
             nn.Linear(dim*2, num_layers),
         )
         self.to_colors = nn.Sequential(
@@ -136,18 +131,10 @@ class XDecoder(nn.Module):
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
             nn.Dropout(0.1),
-            nn.Linear(dim*2, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
             nn.Linear(dim*2, 4),
         )
         self.to_positions = nn.Sequential(
             nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, dim*2),
             nn.LayerNorm(normalized_shape=dim*2),
             nn.GELU(),
             nn.Dropout(0.1),
@@ -172,8 +159,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.l1_loss(pos_guess, pos_target) * pos_alpha
-            #return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.l1_loss(col_guess, col_target) * col_alpha + F.l1_loss(pos_guess, pos_target) * pos_alpha
+            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.l1_loss(col_guess, col_target) * col_alpha + F.l1_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -206,7 +192,7 @@ def piecewise_decay(epoch, steps, alphas):
 def linear_decay(epoch, start, end):
     return start + min(end, ((end-start)/float(epoch)))
 
-def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 100, max_patience = 5, batch_metrics=True):
+def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 100, max_patience = 5, batch_metrics=True, freeze_best=False):
     learner = Dino(
         model,
         image_size = image_size,
@@ -268,14 +254,15 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
             break
     
     model.load_state_dict(best_model)
-    for param in model.parameters():
-        param.requires_grad = False
+    if freeze_best:
+        for param in model.parameters():
+            param.requires_grad = False
     return model
 
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 8, 'd_depth': 3, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 128, 'e_depth': 2, 'e_heads': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -284,7 +271,7 @@ def main():
     if os.path.exists('x_train.csv'):
         os.remove('x_train.csv')
 
-    batch_size = 32
+    batch_size = 16
     valid_split = 0.2
     epochs = 1000000
     eval_every = 1
@@ -318,8 +305,8 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
     for edx in range(epochs):
@@ -332,6 +319,8 @@ def main():
             loss = model(img, saml, return_loss=True)
             loss.backward()
             running_loss += loss.item()
+
+            torch.nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.5)
 
             optimizer.step()
             scheduler.step()
@@ -380,7 +369,7 @@ def main():
 
     model.load_state_dict(best_model)
     feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
-    saml = model.generate(feature, vocab, device=device)
+    saml = model.generate(feature, device=device)
     convert_numpy_to_saml(saml, vocab, name='xtransform', values_clamped=x_settings['clamped_values'])
     torch.save(best_model, 'best_model.pt')
 
