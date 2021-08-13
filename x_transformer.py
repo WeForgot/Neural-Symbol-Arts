@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 #from byol_pytorch import BYOL
 from model.mobilenetv3 import mobilenet_v3_small
-from routing_transformer import RoutingTransformer, Autopadder
+from model.custom_gmlp import gMLPVision
 from vit_pytorch import Dino
 from model.custom_vit import ViT
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
@@ -85,13 +85,12 @@ class Permute(nn.Module):
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = ViT(
+        self.encoder = gMLPVision(
             image_size = image_size,
             patch_size = patch_size,
             dim = dim,
             depth = depth,
-            heads = heads,
-            mlp_dim = dim * 2
+            prob_survival = 0.9
         )
         self.to_latent = nn.Identity()
     
@@ -113,6 +112,7 @@ class XDecoder(nn.Module):
                 depth = depth,
                 heads = heads,
                 cross_attend = True,
+                cross_only = True
             ),
             dim_out = dim
         )
@@ -144,7 +144,8 @@ class XDecoder(nn.Module):
     def forward(self, context):
         b = context.shape[0]
         x = self.pos_embs.repeat(b, 1, 1)
-        out = self.decoder(x,context=context, return_embeddings=True)
+        #out = self.decoder(x,context=context, return_embeddings=True)
+        out = self.decoder(x, context = context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
