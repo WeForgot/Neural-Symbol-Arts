@@ -85,13 +85,14 @@ class Permute(nn.Module):
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = gMLPVision(
-            image_size = image_size,
-            patch_size = patch_size,
-            dim = dim,
-            depth = depth,
-            prob_survival = 0.9
-        )
+        #self.encoder = gMLPVision(
+        #    image_size = image_size,
+        #    patch_size = patch_size,
+        #    dim = dim,
+        #    depth = depth,
+        #    prob_survival = 0.9
+        #)
+        self.encoder = mobilenet_v3_small(dim)
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -144,8 +145,8 @@ class XDecoder(nn.Module):
     def forward(self, context):
         b = context.shape[0]
         x = self.pos_embs.repeat(b, 1, 1)
-        #out = self.decoder(x,context=context, return_embeddings=True)
-        out = self.decoder(x, context = context)
+        out = self.decoder(x,context=context, return_embeddings=True)
+        #out = self.decoder(x, context = context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -263,7 +264,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 128, 'e_depth': 2, 'e_heads': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
