@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from adabelief_pytorch import AdaBelief
@@ -59,7 +60,7 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super(PreNorm, self).__init__()
-        self.norm = nn.BatchNorm2d(num_features=dim)
+        self.norm = nn.LayerNorm(normalized_shape=dim)
         self.fn = fn
     
     def forward(self, x):
@@ -85,14 +86,13 @@ class Permute(nn.Module):
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        #self.encoder = gMLPVision(
-        #    image_size = image_size,
-        #    patch_size = patch_size,
-        #    dim = dim,
-        #    depth = depth,
-        #    prob_survival = 0.9
-        #)
-        self.encoder = mobilenet_v3_small(dim)
+        self.encoder = gMLPVision(
+            image_size = image_size,
+            patch_size = patch_size,
+            dim = dim,
+            depth = depth,
+            prob_survival = 0.9
+        )
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -120,26 +120,49 @@ class XDecoder(nn.Module):
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
 
+        ffc = nn.ModuleList(
+            [nn.Sequential(
+                PreNorm(dim, Residual(nn.Linear(dim, dim))),
+                nn.LayerNorm(dim),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(3)]
+        )
+
         self.to_classes = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, num_layers),
+            *ffc,
+            nn.Linear(dim, num_layers),
+        )
+
+        ffl = nn.ModuleList(
+            [nn.Sequential(
+                PreNorm(dim, Residual(nn.Linear(dim, dim))),
+                nn.LayerNorm(dim),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(3)]
         )
         self.to_colors = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, 4),
+            *ffl,
+            nn.Linear(dim, 4),
+            nn.Sigmoid(),
+        )
+
+        ffp = nn.ModuleList(
+                [nn.Sequential(
+                    PreNorm(dim, Residual(nn.Linear(dim, dim))),
+                    nn.LayerNorm(dim),
+                    nn.GELU(),
+                    nn.Dropout(0.1)
+                )
+            for _ in range(3)]
         )
         self.to_positions = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, 8),
+            *ffp,
+            nn.Linear(dim, 8),
+            nn.Sigmoid(),
         )
     
     def forward(self, context):
@@ -264,7 +287,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 32, 'e_depth': 2, 'e_heads': 8, 'd_depth': 4, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 128, 'e_depth': 1, 'e_heads': 12, 'd_depth': 1, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -307,9 +330,11 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-4)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
+
+    scaler = GradScaler()
 
     for edx in range(epochs):
         running_loss = 0
@@ -318,13 +343,19 @@ def main():
             img, saml = i_batch['feature'].to(device), i_batch['label'].to(device)
             loss = 0
             optimizer.zero_grad()
-            loss = model(img, saml, return_loss=True)
-            loss.backward()
+
+            with autocast():
+                loss = model(img, saml, return_loss=True)
+
             running_loss += loss.item()
+            scaler.scale(loss).backward()
 
-            torch.nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.5)
+            #scaler.unscale_(optimizer)
+            
+            #torch.nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.5)
 
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
             
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
