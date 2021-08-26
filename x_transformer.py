@@ -6,6 +6,7 @@ import random
 import numpy as np
 
 import torch
+from torch.cuda.amp import GradScaler, autocast
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -13,7 +14,7 @@ from torch.utils.data import DataLoader
 from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
-
+from model.custom_nest import NesT
 #from byol_pytorch import BYOL
 #from model.mobilenetv3 import mobilenet_v3_small
 from vit_pytorch import Dino
@@ -58,7 +59,7 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super(PreNorm, self).__init__()
-        self.norm = nn.BatchNorm2d(num_features=dim)
+        self.norm = nn.LayerNorm(normalized_shape=dim)
         self.fn = fn
     
     def forward(self, x):
@@ -85,6 +86,14 @@ class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
         #self.encoder = mobilenet_v3_small(dim)
+        self.encoder = NesT(
+            image_size = image_size,
+            patch_size = patch_size,
+            dim = dim,
+            heads = heads,
+            num_heirarchies = 3,
+            block_repeats = (8, 4, 1)
+        )
         '''
         self.encoder = gMLPVision(
             image_size = image_size,
@@ -94,7 +103,6 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
-        '''
         self.encoder = ViTransformerWrapper(
             image_size = image_size,
             patch_size = patch_size,
@@ -102,9 +110,9 @@ class XEncoder(nn.Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
-                ff_glu = True
             )
         )
+        '''
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -112,11 +120,12 @@ class XEncoder(nn.Module):
         return self.to_latent(x)
 
 class XDecoder(nn.Module):
-    def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads):
+    def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        #decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
-        #self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
+        self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+        '''
         self.decoder = ContinuousTransformerWrapper(
             dim_in = dim,
             dim_out = dim,
@@ -125,11 +134,10 @@ class XDecoder(nn.Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
-                rel_pos_bias = True,
-                ff_glu = True,
                 cross_attend = True
             )
         )
+        '''
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -139,26 +147,49 @@ class XDecoder(nn.Module):
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
 
+        ffc = nn.ModuleList(
+            [nn.Sequential(
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(final_depth)]
+        )
+
         self.to_classes = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, num_layers)
+            nn.Linear(dim, dim*ff_mult),
+            *ffc,
+            nn.Linear(dim*ff_mult, num_layers),
+        )
+
+        ffl = nn.ModuleList(
+            [nn.Sequential(
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(final_depth)]
         )
         self.to_colors = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, 4)
+            nn.Linear(dim, dim*ff_mult),
+            *ffl,
+            nn.Linear(dim*ff_mult, 4),
+            nn.Sigmoid(),
+        )
+
+        ffp = nn.ModuleList(
+                [nn.Sequential(
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(final_depth)]
         )
         self.to_positions = nn.Sequential(
-            nn.Linear(dim, dim*2),
-            nn.LayerNorm(normalized_shape=dim*2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(dim*2, 8)
+            nn.Linear(dim, dim*ff_mult),
+            *ffp,
+            nn.Linear(dim*ff_mult, 8),
+            nn.Tanh(),
         )
 
     def embed_saml(self, saml):
@@ -170,14 +201,12 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.pre_proj(x)
         x = self.pre_norm(x)
-        out = self.decoder(x, context=context, mask=mask)
+        #out = self.decoder(x, context=context, mask=mask)
         #out = self.decoder(x, context=context, intput_mask=mask)
-        #out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
-        out = self.post_norm(out)
-        out = self.post_drop(out)
+        out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         col_guess = torch.sigmoid(col_guess)
-        pos_guess = torch.sigmoid(pos_guess)
+        pos_guess = torch.tanh(pos_guess)
         return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
@@ -195,7 +224,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.mse_loss(col_guess, col_target) * col_alpha + F.mse_loss(pos_guess, pos_target) * pos_alpha
+            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -211,7 +240,7 @@ class NeuralTransformer(nn.Module):
             mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
             emb_out, col_out, pos_out = self.decoder(x, mask, context)
             emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
-            filtered_logits = top_k_top_p_filtering(emb_out, top_k=5)
+            filtered_logits = top_k_top_p_filtering(emb_out, top_k=1)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
@@ -234,81 +263,9 @@ def piecewise_decay(epoch, steps, alphas):
 def linear_decay(epoch, start, end):
     return start + min(end, ((end-start)/float(epoch)))
 
-def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 100, max_patience = 5, batch_metrics=True):
-    learner = Dino(
-        model,
-        image_size = image_size,
-        hidden_layer= 'to_latent',
-    ).to(device)
-
-
-    #opt = AdaBelief(learner.parameters(), lr=1e-2, weight_decay=1e-5, print_change_log=False)
-    #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0=125)
-    
-
-    train_dataloder = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-    valid_dataloader = DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    opt = optim.AdamW(learner.parameters(), lr=1e-2, weight_decay=0.04)
-    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0 = len(train_dataloder) * 10, eta_min = 1e-6)
-    
-    best_loss = None
-    best_model = None
-    patience = 0
-
-    for edx in range(max_epochs):
-        model.train()
-        learner.train()
-        running_loss = 0.0
-        for bdx, i_batch in enumerate(train_dataloder):
-            img = i_batch['feature'].to(device)
-            loss = learner(img)
-            running_loss += loss.item()
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            learner.update_moving_average()
-            if batch_metrics:
-                print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
-            scheduler.step()
-        
-        print('TRAINING Epoch #{}, Total Loss: {}'.format(edx, running_loss))
-
-        model.eval()
-        learner.eval()
-        running_loss = 0.0
-        with torch.no_grad():
-            for bdx, i_batch in enumerate(valid_dataloader):
-                img = i_batch['feature'].to(device)
-                loss = learner(img)
-                running_loss += loss.item()
-        
-        if best_loss is None or running_loss < best_loss:
-            best_loss = running_loss
-            best_model = model.state_dict()
-            patience = 0
-        else:
-            patience += 1
-        
-        print('VALIDATION Epoch #{}, Total Loss: {}, Patience: {}'.format(edx, running_loss, patience))
-
-        if patience > max_patience:
-            print('Out of patience')
-            break
-
-        if best_loss == 0.0:
-            print("We aren't doing any better than this...")
-            break
-    
-    model.load_state_dict(best_model)
-    for param in model.parameters():
-        param.requires_grad = False
-    return model
-
-
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 16, 'dim': 64, 'e_depth': 2, 'e_heads': 6, 'emb_dim':8, 'd_depth': 2, 'd_heads': 16, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 120, 'e_depth': 2, 'e_heads': 12, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -341,14 +298,14 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
-
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
     optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
+
+    scaler = GradScaler()
 
     epochs = 1000000
     max_seq_len = 227
@@ -374,12 +331,16 @@ def main():
                 
                 idx = idxs.pop(0)
                 x, xm = saml[:,:idx], mask[:,:idx]
-                loss = model(img, x, xm, return_loss=True)
-                loss.backward()
+                with autocast():
+                    loss = model(img, x, xm, return_loss=True)
+                    loss = loss / accumulate
+                scaler.scale(loss).backward()
                 running_loss += loss.item()
+                
 
             #torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
             
             print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
@@ -395,7 +356,8 @@ def main():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
                 for idx in range(2, max_seq_len):
-                    running_loss += model(img, saml[:,:idx], mask[:,:idx], return_loss=True).item()
+                    with autocast():
+                        running_loss += model(img, saml[:,:idx], mask[:,:idx], return_loss=True).item()
                 
         
         
