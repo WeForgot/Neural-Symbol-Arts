@@ -82,6 +82,24 @@ class Permute(nn.Module):
     def forward(self, x):
         return x.permute(*self.permutation)
 
+class Mixture(nn.Module):
+    def __init__(self, width, depth, act=None):
+        super(Mixture, self).__init__()
+        act = act if act is not None else nn.ReLU
+        self.seq = nn.Sequential(
+            Permute(2,1),
+            nn.Linear(width, width),
+            nn.LayerNorm(width),
+            act(),
+            Permute(2,1),
+            nn.Linear(depth, depth),
+            nn.LayerNorm(depth),
+            act(),
+        )
+    
+    def forward(self, x):
+        return self.seq(x)
+
 # Model classes
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
@@ -100,75 +118,92 @@ class XEncoder(nn.Module):
         return self.to_latent(x)
 
 class XDecoder(nn.Module):
-    def __init__(self, num_layers, max_seq_len, dim, depth, heads):
+    def __init__(self, num_layers, max_seq_len, dim, depth, heads, ff_mult=4):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
         self.dim = dim
 
-        self.pos_embs = nn.parameter.Parameter(torch.randn((max_seq_len, dim)), requires_grad=True)
-        self.decoder = ContinuousTransformerWrapper(
-            max_seq_len = 225,
-            attn_layers = Decoder(
-                dim = dim,
-                depth = depth,
-                heads = heads,
-                cross_attend = True,
-                cross_only = True
-            ),
-            dim_out = dim
+        self.pos_embs = nn.parameter.Parameter(torch.zeros((max_seq_len, dim)), requires_grad=False)
+        #self.decoder = ContinuousTransformerWrapper(
+        #    max_seq_len = 225,
+        #    attn_layers = Decoder(
+        #        dim = dim,
+        #        depth = depth,
+        #        heads = heads,
+        #        cross_attend = True,
+        #        cross_only = True
+        #    ),
+        #    dim_out = dim
+        #)
+        self.projection_in = nn.Sequential(
+            Permute(2,1),
+            nn.Linear(784,225),
+            Permute(2,1),
         )
+        self.decoder = nn.Sequential(*([
+                Mixture(225, dim)
+            for x in range(depth)]))
+            
+        #self.decoder = nn.Sequential(
+        #    Permute(2,1),
+        #    nn.Linear(49,225),
+        #    Permute(2,1),
+        #    nn.Linear(dim, dim),
+        #)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
 
         ffc = nn.ModuleList(
             [nn.Sequential(
-                PreNorm(dim, Residual(nn.Linear(dim, dim))),
-                nn.LayerNorm(dim),
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
                 nn.GELU(),
                 nn.Dropout(0.1)
             )
-            for _ in range(3)]
+            for _ in range(2)]
         )
 
         self.to_classes = nn.Sequential(
+            nn.Linear(dim, dim*ff_mult),
             *ffc,
-            nn.Linear(dim, num_layers),
+            nn.Linear(dim*ff_mult, num_layers),
         )
 
         ffl = nn.ModuleList(
             [nn.Sequential(
-                PreNorm(dim, Residual(nn.Linear(dim, dim))),
-                nn.LayerNorm(dim),
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
                 nn.GELU(),
                 nn.Dropout(0.1)
             )
-            for _ in range(3)]
+            for _ in range(2)]
         )
         self.to_colors = nn.Sequential(
+            nn.Linear(dim, dim*ff_mult),
             *ffl,
-            nn.Linear(dim, 4),
+            nn.Linear(dim*ff_mult, ff_mult),
             nn.Sigmoid(),
         )
 
         ffp = nn.ModuleList(
                 [nn.Sequential(
-                    PreNorm(dim, Residual(nn.Linear(dim, dim))),
-                    nn.LayerNorm(dim),
-                    nn.GELU(),
-                    nn.Dropout(0.1)
-                )
-            for _ in range(3)]
+                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
+                nn.GELU(),
+                nn.Dropout(0.1)
+            )
+            for _ in range(2)]
         )
         self.to_positions = nn.Sequential(
+            nn.Linear(dim, dim*ff_mult),
             *ffp,
-            nn.Linear(dim, 8),
-            nn.Sigmoid(),
+            nn.Linear(dim*ff_mult, 8),
+            nn.Tanh(),
         )
     
     def forward(self, context):
         b = context.shape[0]
         x = self.pos_embs.repeat(b, 1, 1)
-        out = self.decoder(x,context=context, return_embeddings=True)
+        out = self.projection_in(context)
+        out = self.decoder(out)
+        #out = self.decoder(x,context=context, return_embeddings=True)
         #out = self.decoder(x, context = context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
@@ -184,7 +219,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.l1_loss(col_guess, col_target) * col_alpha + F.l1_loss(pos_guess, pos_target) * pos_alpha
+            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -197,7 +232,7 @@ class NeuralTransformer(nn.Module):
         out = []
         for idx in range(emb_out.shape[1]):
             cur_emb, cur_col, cur_pos = emb_out[0, idx], col_out[0, idx], pos_out[0, idx]
-            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=1)
+            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=3)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
@@ -287,7 +322,7 @@ def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, devic
 
 # The main function
 def main():
-    x_settings = {'image_size': 192, 'patch_size': 8, 'dim': 128, 'e_depth': 1, 'e_heads': 12, 'd_depth': 1, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 256, 'e_depth': 4, 'e_heads': 12, 'd_depth': 5, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -350,10 +385,6 @@ def main():
             running_loss += loss.item()
             scaler.scale(loss).backward()
 
-            #scaler.unscale_(optimizer)
-            
-            #torch.nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.5)
-
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
@@ -394,9 +425,9 @@ def main():
         else:
             patience += 1
         
-        print('Validation Epoch #{}, Loss: {}, Patience: {}/50'.format(edx, running_loss/len(valid_dataloader), patience))
+        print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss/len(valid_dataloader), patience))
 
-        if patience > 50:
+        if patience > 20:
             print('Out of patience')
             break
 
