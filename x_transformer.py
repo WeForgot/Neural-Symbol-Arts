@@ -14,12 +14,8 @@ from torch.utils.data import DataLoader
 from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
-from model.custom_nest import NesT
-#from byol_pytorch import BYOL
-#from model.mobilenetv3 import mobilenet_v3_small
-from vit_pytorch import Dino
-from model.custom_vit import ViT
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
+from model.resnet import resnet18
 
 
 
@@ -95,7 +91,6 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
-        '''
         self.encoder = ViTransformerWrapper(
             image_size = image_size,
             patch_size = patch_size,
@@ -105,6 +100,8 @@ class XEncoder(nn.Module):
                 heads = heads,
             )
         )
+        '''
+        self.encoder = resnet18(dim)
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -245,7 +242,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 96, 'e_depth': 1, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 6, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 36, 'e_depth': 1, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 1, 'd_heads': 6, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
