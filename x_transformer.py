@@ -86,14 +86,6 @@ class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
         #self.encoder = mobilenet_v3_small(dim)
-        self.encoder = NesT(
-            image_size = image_size,
-            patch_size = patch_size,
-            dim = dim,
-            heads = heads,
-            num_heirarchies = 3,
-            block_repeats = (8, 4, 1)
-        )
         '''
         self.encoder = gMLPVision(
             image_size = image_size,
@@ -103,6 +95,7 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
+        '''
         self.encoder = ViTransformerWrapper(
             image_size = image_size,
             patch_size = patch_size,
@@ -112,7 +105,6 @@ class XEncoder(nn.Module):
                 heads = heads,
             )
         )
-        '''
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -123,11 +115,8 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first=True)
-        self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
-        '''
         self.decoder = ContinuousTransformerWrapper(
-            dim_in = dim,
+            dim_in = emb_dim+12,
             dim_out = dim,
             max_seq_len = max_seq_len,
             attn_layers = Decoder(
@@ -137,13 +126,9 @@ class XDecoder(nn.Module):
                 cross_attend = True
             )
         )
-        '''
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
-        self.pre_proj = nn.Linear(in_features=emb_dim+12, out_features=dim)
-        self.pre_norm = nn.LayerNorm(normalized_shape=dim)
-        self.pre_drop = nn.Dropout(p=0.2)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
 
@@ -199,11 +184,7 @@ class XDecoder(nn.Module):
     
     def forward(self, saml, mask=None, context=None):
         x = self.embed_saml(saml)
-        x = self.pre_proj(x)
-        x = self.pre_norm(x)
-        #out = self.decoder(x, context=context, mask=mask)
-        #out = self.decoder(x, context=context, intput_mask=mask)
-        out = self.decoder(tgt=x, memory=context, tgt_key_padding_mask=~mask)
+        out = self.decoder(x, context=context, mask=mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         col_guess = torch.sigmoid(col_guess)
         pos_guess = torch.tanh(pos_guess)
@@ -224,8 +205,8 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
-        return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
+            return  F.cross_entropy(emb_guess[:,-1:,:].transpose(1,2), emb_target[:,-1:,:].squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess[:,-1:,:], col_target[:,-1:,:]) * col_alpha + F.smooth_l1_loss(pos_guess[:,-1:,:], pos_target[:,-1:,:]) * pos_alpha
+        return torch.cat([emb_guess[:,-1:,:], col_guess[:,-1:,:], pos_guess[:,-1:,:]], dim=-1)
     
     @torch.no_grad()
     def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=226, temperature = 1.0, device=None) -> np.ndarray:
@@ -234,12 +215,11 @@ class NeuralTransformer(nn.Module):
         context = self.encoder(src)
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
-        input_mask = [True]
+        #input_mask = [True]
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
             x = torch.tensor(out).unsqueeze(0).to(device)
-            mask = torch.tensor(input_mask, dtype=torch.bool).unsqueeze(0).to(device)
-            emb_out, col_out, pos_out = self.decoder(x, mask, context)
-            emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
+            emb_out, col_out, pos_out = self.decoder(x, context=context)
+            emb_out, col_out, pos_out = emb_out[:, -1:, :], col_out[:, -1:, :], pos_out[:, -1:, :]
             filtered_logits = top_k_top_p_filtering(emb_out, top_k=1)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
@@ -249,7 +229,7 @@ class NeuralTransformer(nn.Module):
             colors = list(map(float, col_out.squeeze().tolist()))
             positions = list(map(float, pos_out.squeeze().tolist()))
             out.append([emb_idx] + colors + positions)
-            input_mask.append(True)
+            #input_mask.append(True)
         return np.asarray(out)
 
 def piecewise_decay(epoch, steps, alphas):
@@ -265,7 +245,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 120, 'e_depth': 2, 'e_heads': 12, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 96, 'e_depth': 1, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 2, 'd_heads': 6, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -274,6 +254,7 @@ def main():
     if os.path.exists('x_train.csv'):
         os.remove('x_train.csv')
     vocab, data = load_data(clamp_values=x_settings['clamped_values'])
+    print('Number of data points available: {}'.format(len(data)))
     random.shuffle(data)
     
     model = NeuralTransformer(
@@ -301,8 +282,8 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
     scaler = GradScaler()
@@ -380,9 +361,9 @@ def main():
         else:
             patience += 1
         
-        print('Validation Epoch #{}, Loss: {}, Patience: {}/50'.format(edx, running_loss/len(valid_dataloader), patience))
+        print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss/len(valid_dataloader), patience))
 
-        if patience > 50:
+        if patience > 20:
             print('Out of patience')
             break
 
