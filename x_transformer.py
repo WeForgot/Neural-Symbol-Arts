@@ -14,8 +14,8 @@ from torch.utils.data import DataLoader
 from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
+from model.custom_gmlp import gMLPVision
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
-from model.resnet import resnet18
 
 
 
@@ -82,7 +82,7 @@ class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
         #self.encoder = mobilenet_v3_small(dim)
-        '''
+        #self.encoder = resnet18(dim)
         self.encoder = gMLPVision(
             image_size = image_size,
             patch_size = patch_size,
@@ -91,6 +91,7 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
+        '''
         self.encoder = ViTransformerWrapper(
             image_size = image_size,
             patch_size = patch_size,
@@ -101,7 +102,7 @@ class XEncoder(nn.Module):
             )
         )
         '''
-        self.encoder = resnet18(dim)
+        
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -120,7 +121,8 @@ class XDecoder(nn.Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
-                cross_attend = True
+                cross_attend = True,
+                alibi_pos_emb = True,
             )
         )
 
@@ -179,12 +181,10 @@ class XDecoder(nn.Module):
         x = self.embedding(x.long()).squeeze(2)
         return torch.cat([x, y], dim=-1)
     
-    def forward(self, saml, mask=None, context=None):
+    def forward(self, saml, context=None):
         x = self.embed_saml(saml)
-        out = self.decoder(x, context=context, mask=mask)
+        out = self.decoder(x, context=context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
-        col_guess = torch.sigmoid(col_guess)
-        pos_guess = torch.tanh(pos_guess)
         return emb_guess, col_guess, pos_guess
 
 class NeuralTransformer(nn.Module):
@@ -193,16 +193,13 @@ class NeuralTransformer(nn.Module):
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), emb_dim, max_seq_len, dim, d_depth, d_heads)
     
-    def forward(self, src, tgt, tgt_mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
+    def forward(self, src, tgt, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
         features, labels = tgt[:,:-1,:], tgt[:,1:,:]
-        fmask = None
-        if tgt_mask is not None:
-            fmask = tgt_mask[:,:-1]
-        emb_guess, col_guess, pos_guess = self.decoder(features, mask=fmask, context=enc)
+        emb_guess, col_guess, pos_guess = self.decoder(features, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.cross_entropy(emb_guess[:,-1:,:].transpose(1,2), emb_target[:,-1:,:].squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess[:,-1:,:], col_target[:,-1:,:]) * col_alpha + F.smooth_l1_loss(pos_guess[:,-1:,:], pos_target[:,-1:,:]) * pos_alpha
+            return  F.cross_entropy(emb_guess[:,-1:,:].transpose(1,2), emb_target[:,-1:,:].squeeze(-1).long()) * emb_alpha + F.smooth_l1_loss(col_guess[:,-1:,:], col_target[:,-1:,:]) * col_alpha + F.smooth_l1_loss(pos_guess[:,-1:,:], pos_target[:,-1:,:]) * pos_alpha
         return torch.cat([emb_guess[:,-1:,:], col_guess[:,-1:,:], pos_guess[:,-1:,:]], dim=-1)
     
     @torch.no_grad()
@@ -226,7 +223,6 @@ class NeuralTransformer(nn.Module):
             colors = list(map(float, col_out.squeeze().tolist()))
             positions = list(map(float, pos_out.squeeze().tolist()))
             out.append([emb_idx] + colors + positions)
-            #input_mask.append(True)
         return np.asarray(out)
 
 def piecewise_decay(epoch, steps, alphas):
@@ -272,22 +268,21 @@ def main():
     valid_split = 0.2
     train_split, valid_split = data[int(len(data)*valid_split):], data[:int(len(data)*valid_split)]
 
-    batch_size = 32
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
-    train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
+    #train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
-    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
 
     scaler = GradScaler()
 
     epochs = 1000000
     max_seq_len = 227
-    accumulate = 6
+    accumulate = 32
     eval_every = 1
     idxs = []
     patience = 0
@@ -296,51 +291,61 @@ def main():
 
     for edx in range(epochs):
         running_loss = 0
+        batch_loss = 0
         model.train()
-        for bdx, i_batch in enumerate(train_dataloader):
-            img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-            loss = 0
-            optimizer.zero_grad()
+        loss = 0
+        bdx = 0
+        for ddx, i_batch in enumerate(train_dataset):
+            img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
+            
 
-            for _ in range(accumulate):
-                if len(idxs) == 0:
-                    idxs = list(range(2,max_seq_len))
-                    random.shuffle(idxs)
-                
-                idx = idxs.pop(0)
-                x, xm = saml[:,:idx], mask[:,:idx]
-                with autocast():
-                    loss = model(img, x, xm, return_loss=True)
-                    loss = loss / accumulate
-                scaler.scale(loss).backward()
-                running_loss += loss.item()
+            idx = random.choice(list(range(2, len(saml[0]))))
+            x = saml[:,:idx]
+            loss = model(img, x, return_loss=True) / accumulate
+            scaler.scale(loss).backward()
+            batch_loss += loss.item()
+
+
+            if ddx != 0 and ddx % accumulate == 0:
+                optimizer.zero_grad()
+                scaler.step(optimizer)
+                scaler.update()
+                #scheduler.step()
+                running_loss += batch_loss
+                print('\tBatch #{}, Loss: {}'.format(bdx, batch_loss))
+                batch_loss = 0
+                bdx += 1
                 
 
             #torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            
+            
+            
+        if loss != 0:
+            optimizer.zero_grad()
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
-            
-            print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
+            #scheduler.step()
 
-        print('Training Epoch #{}, Loss: {}, LR: {:.4e}'.format(edx, running_loss/len(train_dataloader), scheduler.get_last_lr()[0]))
-        #print('Training Epoch #{}, Loss: {}'.format(edx, running_loss/len(train_dataloader)))
+        #print('Training Epoch #{}, Loss: {}, LR: {:.4e}'.format(edx, running_loss, scheduler.get_last_lr()[0]))
+        print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
         train_loss = running_loss
         model.eval()
         running_loss = 0
         
 
         with torch.no_grad():
-            for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
-                img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+            for bdx, i_batch in enumerate(tqdm(valid_dataset, desc='Validation', leave=False)):
+                img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
                 for idx in range(2, max_seq_len):
                     with autocast():
-                        running_loss += model(img, saml[:,:idx], mask[:,:idx], return_loss=True).item()
+                        running_loss += model(img, saml[:,:idx], return_loss=True).item()
+            
                 
         
         
         with open('x_train.csv', 'a') as f:
-            f.write('{},{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataloader), running_loss/len(valid_dataloader)))
+            f.write('{},{},{},{},{}\n'.format(edx, train_loss, running_loss, train_loss/len(train_dataset), running_loss/len(valid_dataset)))
         
         if edx % eval_every == 0:
             feature = load_image('PleaseWork.png', image_size=x_settings['image_size'])
@@ -358,7 +363,7 @@ def main():
         else:
             patience += 1
         
-        print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss/len(valid_dataloader), patience))
+        print('Validation Epoch #{}, Loss: {}, Patience: {}/20'.format(edx, running_loss, patience))
 
         if patience > 20:
             print('Out of patience')

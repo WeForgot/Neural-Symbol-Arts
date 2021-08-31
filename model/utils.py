@@ -224,10 +224,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
     else:
         saml_lines.append(eos_line)
     saml_mask.append(True)
-    while len(saml_lines) <= max_length:
-        saml_lines.append(pad_line)
-        saml_mask.append(False)
-    return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
+    return np.asarray(saml_lines, dtype=np.float32)
 
 def load_data(dpath = None, should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
@@ -240,8 +237,8 @@ def load_data(dpath = None, should_reverse=False, clamp_values=False) -> Tuple[V
     for x in all_samls:
         print('Working on {}'.format(x))
         img_path = x[:-5] + '.png'
-        converted, mask = convert_saml(x, vocab, reverse = should_reverse, clamp_values=clamp_values)
-        data.append({'feature': img_path, 'label': converted, 'mask': mask})
+        converted = convert_saml(x, vocab, reverse = should_reverse, clamp_values=clamp_values)
+        data.append({'feature': img_path, 'label': converted})
     return vocab, data
 
 
