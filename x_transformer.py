@@ -15,6 +15,7 @@ from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
 from model.custom_gmlp import gMLPVision
+from model.mobilenetv3 import mobilenet_v3_small
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
 
 
@@ -113,21 +114,13 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        self.decoder = ContinuousTransformerWrapper(
-            dim_in = emb_dim+12,
-            dim_out = dim,
-            max_seq_len = max_seq_len,
-            attn_layers = Decoder(
-                dim = dim,
-                depth = depth,
-                heads = heads,
-                cross_attend = True,
-                alibi_pos_emb = True,
-            )
-        )
+        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first = True)
+        self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
+        self.pos_emb = nn.parameter.Parameter(torch.zeros((227, dim)), requires_grad = True)
+        self.post_proj = nn.Linear(emb_dim+12, dim)
         self.post_norm = nn.LayerNorm(dim)
         self.post_drop = nn.Dropout(p=0.2)
 
@@ -182,8 +175,13 @@ class XDecoder(nn.Module):
         return torch.cat([x, y], dim=-1)
     
     def forward(self, saml, context=None):
+        _, n, _ = saml.shape
         x = self.embed_saml(saml)
-        out = self.decoder(x, context=context)
+        #out = self.decoder(x, context=context)
+        x = self.post_proj(x)
+        x += self.pos_emb[:n].unsqueeze(0)
+        x = self.post_norm(x)
+        out = self.decoder(x, context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -199,8 +197,8 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(features, context=enc)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.cross_entropy(emb_guess[:,-1:,:].transpose(1,2), emb_target[:,-1:,:].squeeze(-1).long()) * emb_alpha + F.smooth_l1_loss(col_guess[:,-1:,:], col_target[:,-1:,:]) * col_alpha + F.smooth_l1_loss(pos_guess[:,-1:,:], pos_target[:,-1:,:]) * pos_alpha
-        return torch.cat([emb_guess[:,-1:,:], col_guess[:,-1:,:], pos_guess[:,-1:,:]], dim=-1)
+            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
+        return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
     def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=226, temperature = 1.0, device=None) -> np.ndarray:
@@ -209,7 +207,6 @@ class NeuralTransformer(nn.Module):
         context = self.encoder(src)
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
-        #input_mask = [True]
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
             x = torch.tensor(out).unsqueeze(0).to(device)
             emb_out, col_out, pos_out = self.decoder(x, context=context)
@@ -238,7 +235,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 36, 'e_depth': 1, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 1, 'd_heads': 6, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 72, 'e_depth': 2, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 3, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
