@@ -16,6 +16,7 @@ from adabelief_pytorch import AdaBelief
 from tqdm import tqdm
 from model.custom_gmlp import gMLPVision
 from model.mobilenetv3 import mobilenet_v3_small
+from model.resnet import resnet18
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
 
 
@@ -83,7 +84,8 @@ class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
         #self.encoder = mobilenet_v3_small(dim)
-        #self.encoder = resnet18(dim)
+        self.encoder = resnet18(dim)
+        '''
         self.encoder = gMLPVision(
             image_size = image_size,
             patch_size = patch_size,
@@ -92,7 +94,6 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
-        '''
         self.encoder = ViTransformerWrapper(
             image_size = image_size,
             patch_size = patch_size,
@@ -114,8 +115,19 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, activation='gelu', batch_first = True)
-        self.decoder = nn.TransformerDecoder(decoder_layer = decoder_layer, num_layers = depth)
+
+        self.decoder = ContinuousTransformerWrapper(
+            max_seq_len = 227,
+            attn_layers = Decoder(
+                dim = dim,
+                depth = depth,
+                heads = heads,
+                cross_attend = True,
+                alibi_pos_emb = True,
+            ),
+            dim_in = emb_dim + 12,
+            dim_out = dim,
+        )
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -175,13 +187,8 @@ class XDecoder(nn.Module):
         return torch.cat([x, y], dim=-1)
     
     def forward(self, saml, context=None):
-        _, n, _ = saml.shape
         x = self.embed_saml(saml)
-        #out = self.decoder(x, context=context)
-        x = self.post_proj(x)
-        x += self.pos_emb[:n].unsqueeze(0)
-        x = self.post_norm(x)
-        out = self.decoder(x, context)
+        out = self.decoder(x, context=context)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -235,7 +242,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 72, 'e_depth': 2, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 3, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 72, 'e_depth': 3, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 6, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -271,15 +278,15 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
-    #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
 
     scaler = GradScaler()
 
     epochs = 1000000
     max_seq_len = 227
-    accumulate = 32
+    accumulate = 64
     eval_every = 1
     idxs = []
     patience = 0
@@ -298,16 +305,17 @@ def main():
 
             idx = random.choice(list(range(2, len(saml[0]))))
             x = saml[:,:idx]
-            loss = model(img, x, return_loss=True) / accumulate
+            with autocast():
+                loss = model(img, x, return_loss=True) / accumulate
             scaler.scale(loss).backward()
             batch_loss += loss.item()
 
 
-            if ddx != 0 and ddx % accumulate == 0:
-                optimizer.zero_grad()
+            if (ddx + 1) % accumulate == 0:
                 scaler.step(optimizer)
                 scaler.update()
-                #scheduler.step()
+                scheduler.step()
+                optimizer.zero_grad()
                 running_loss += batch_loss
                 print('\tBatch #{}, Loss: {}'.format(bdx, batch_loss))
                 batch_loss = 0
@@ -322,7 +330,7 @@ def main():
             optimizer.zero_grad()
             scaler.step(optimizer)
             scaler.update()
-            #scheduler.step()
+            scheduler.step()
 
         #print('Training Epoch #{}, Loss: {}, LR: {:.4e}'.format(edx, running_loss, scheduler.get_last_lr()[0]))
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
