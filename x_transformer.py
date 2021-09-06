@@ -186,9 +186,9 @@ class XDecoder(nn.Module):
         x = self.embedding(x.long()).squeeze(2)
         return torch.cat([x, y], dim=-1)
     
-    def forward(self, saml, context=None):
+    def forward(self, saml, context=None, mask=None):
         x = self.embed_saml(saml)
-        out = self.decoder(x, context=context)
+        out = self.decoder(x, context=context, mask=mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -198,12 +198,17 @@ class NeuralTransformer(nn.Module):
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), emb_dim, max_seq_len, dim, d_depth, d_heads)
     
-    def forward(self, src, tgt, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
+    def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
-        features, labels = tgt[:,:-1,:], tgt[:,1:,:]
-        emb_guess, col_guess, pos_guess = self.decoder(features, context=enc)
+        #features, labels = tgt[:,:-1,:], tgt[:,1:,:]
+        mask = torch.ones(tgt.shape[:2]).bool().cuda()
+        mask[0][-1] = False
+        emb_guess, col_guess, pos_guess = self.decoder(tgt, context=enc, mask=mask)
+        emb_guess, col_guess, pos_guess = emb_guess[:, -1:, :], col_guess[:, -1:, :], pos_guess[:, -1:, :]
         if return_loss:
-            emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
+            #emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
+            emb_target, col_target, pos_target = torch.split(tgt, [1, 4, 8], dim=-1)
+            emb_target, col_target, pos_target = emb_target[:, -1:, :], col_target[:, -1:, :], pos_target[:, -1:, :]
             return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
@@ -215,8 +220,12 @@ class NeuralTransformer(nn.Module):
         out = [[vocab['<SOS>']] + [0] * 12]
         eos_token = vocab['<EOS>']
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
-            x = torch.tensor(out).unsqueeze(0).to(device)
-            emb_out, col_out, pos_out = self.decoder(x, context=context)
+            temp = list(out)
+            temp.append([0.0] * 13)
+            x = torch.tensor(temp).unsqueeze(0).to(device)
+            mask = mask = torch.ones(x.shape[:2]).bool().cuda()
+            mask[0][-1] = False
+            emb_out, col_out, pos_out = self.decoder(x, context=context, mask=mask)
             emb_out, col_out, pos_out = emb_out[:, -1:, :], col_out[:, -1:, :], pos_out[:, -1:, :]
             filtered_logits = top_k_top_p_filtering(emb_out, top_k=1)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
