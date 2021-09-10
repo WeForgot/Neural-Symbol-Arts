@@ -10,14 +10,18 @@ from torch.cuda.amp import GradScaler, autocast
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset, random_split
 from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
 from model.custom_gmlp import gMLPVision
 from model.mobilenetv3 import mobilenet_v3_small
-from model.resnet import resnet18
+#from model.resnet import resnet18
+from model.custom_vit import ViT
+from vit_pytorch.mpp import MPP
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
+from linear_attention_transformer import LinearAttentionTransformer
+from linear_attention_transformer.autopadder import Autopadder
 
 
 
@@ -84,7 +88,7 @@ class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
         #self.encoder = mobilenet_v3_small(dim)
-        self.encoder = resnet18(dim)
+        #self.encoder = resnet18(dim)
         '''
         self.encoder = gMLPVision(
             image_size = image_size,
@@ -94,28 +98,82 @@ class XEncoder(nn.Module):
             channels = 3,
             prob_survival = 0.9
         )
-        self.encoder = ViTransformerWrapper(
+        '''
+        self.encoder = ViT(
             image_size = image_size,
             patch_size = patch_size,
-            attn_layers = Encoder(
-                dim = dim,
-                depth = depth,
-                heads = heads,
-            )
+            dim = dim,
+            depth = depth,
+            heads = heads,
         )
-        '''
         
         self.to_latent = nn.Identity()
     
     def forward(self, x):
         x = self.encoder(x)
         return self.to_latent(x)
+    
+    def pretrain(self, train_data, valid_data, patch_size, dim, mask_prob=0.15, random_patch_prob=0.30, replace_prob=0.50, device='cuda'):
+        optimizer = optim.AdamW(self.encoder.parameters(), lr = 1e-4, weight_decay = 1e-4)
+        train_data_t, valid_data_t = torch.cat([data['feature'].unsqueeze(0) for data in train_data]), torch.cat([data['feature'].unsqueeze(0) for data in valid_data])
+        train_data_t, valid_data_t = TensorDataset(train_data_t), TensorDataset(valid_data_t)
+
+        train_dataloader, valid_dataloader = DataLoader(train_data_t, batch_size = 32, shuffle = True), DataLoader(valid_data_t, batch_size = 32)
+
+        mpp = MPP(
+            transformer = self.encoder,
+            patch_size = patch_size,
+            dim = dim,
+            mask_prob = mask_prob,
+            random_patch_prob = random_patch_prob,
+            replace_prob = replace_prob
+        ).to(device)
+
+        best_loss = None
+        best_model = None
+
+        patience = 0
+        max_patience = 10
+
+        for edx in range(100):
+            self.encoder.train()
+            running_loss = 0.0
+            for bdx, i_batch in enumerate(train_dataloader):
+                loss = mpp(i_batch[0].to(device))
+                running_loss += loss.item()
+                print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            print('Training epoch #{}, Running loss: {}'.format(edx, running_loss))
+            
+            self.encoder.eval()
+            running_loss = 0.0
+            for bdx, i_batch in enumerate(valid_dataloader):
+                with torch.no_grad():
+                    running_loss += mpp(i_batch[0].to(device)).item()
+            if best_loss is None or running_loss < best_loss:
+                best_loss = running_loss
+                best_model = self.encoder.state_dict()
+                patience = 0
+            else:
+                patience += 1
+            print('Validation epoch #{}, Running loss: {}, Patience: {}/{}'.format(edx, running_loss, patience, max_patience))
+
+            if patience >= max_patience:
+                print('Out of patience')
+                break
+        
+        self.encoder.load_state_dict(best_model)
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
 
 class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-
+        '''
         self.decoder = ContinuousTransformerWrapper(
             max_seq_len = 227,
             attn_layers = Decoder(
@@ -128,6 +186,17 @@ class XDecoder(nn.Module):
             dim_in = emb_dim + 12,
             dim_out = dim,
         )
+        '''
+        self.decoder = LinearAttentionTransformer(
+            dim = dim,
+            depth = depth,
+            max_seq_len = 226,
+            heads = heads,
+            causal = True,
+            receives_context = True,
+            n_local_attn_heads = 4,
+        )
+        self.decoder = Autopadder(self.decoder)
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -188,6 +257,8 @@ class XDecoder(nn.Module):
     
     def forward(self, saml, context=None, mask=None):
         x = self.embed_saml(saml)
+        x = self.post_proj(x)
+        x = self.post_norm(x)
         out = self.decoder(x, context=context, mask=mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
@@ -200,16 +271,17 @@ class NeuralTransformer(nn.Module):
     
     def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
-        #features, labels = tgt[:,:-1,:], tgt[:,1:,:]
         mask = torch.ones(tgt.shape[:2]).bool().cuda()
         mask[0][-1] = False
         emb_guess, col_guess, pos_guess = self.decoder(tgt, context=enc, mask=mask)
         emb_guess, col_guess, pos_guess = emb_guess[:, -1:, :], col_guess[:, -1:, :], pos_guess[:, -1:, :]
         if return_loss:
-            #emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
             emb_target, col_target, pos_target = torch.split(tgt, [1, 4, 8], dim=-1)
             emb_target, col_target, pos_target = emb_target[:, -1:, :], col_target[:, -1:, :], pos_target[:, -1:, :]
-            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
+            emb_loss = F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
+            col_loss = F.smooth_l1_loss(col_guess, col_target) * col_alpha
+            pos_loss = F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
+            return emb_loss + col_loss + pos_loss
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -251,7 +323,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 72, 'e_depth': 3, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 6, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 128, 'e_depth': 3, 'e_heads': 6, 'emb_dim': 8, 'd_depth': 6, 'd_heads': 16, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -284,11 +356,13 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     #train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
+    #model.encoder.pretrain(train_dataset, valid_dataset, x_settings['patch_size'], x_settings['dim'], device=device)
+
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
     #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
 
     scaler = GradScaler()
@@ -297,7 +371,7 @@ def main():
     max_seq_len = 227
     accumulate = 64
     eval_every = 1
-    idxs = []
+    idxs = list(range(len(train_dataset)))
     patience = 0
     best_loss = None
     best_model = None
@@ -308,9 +382,11 @@ def main():
         model.train()
         loss = 0
         bdx = 0
-        for ddx, i_batch in enumerate(train_dataset):
-            img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
-            
+        random.shuffle(idxs)
+        #for ddx, i_batch in enumerate(train_dataset):
+        for ddx, i_batch in enumerate(idxs):
+            #img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
+            img, saml = train_dataset[i_batch]['feature'].to(device).unsqueeze(0), train_dataset[i_batch]['label'].to(device).unsqueeze(0)
 
             idx = random.choice(list(range(2, len(saml[0]))))
             x = saml[:,:idx]
