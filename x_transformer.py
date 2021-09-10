@@ -20,8 +20,6 @@ from model.mobilenetv3 import mobilenet_v3_small
 from model.custom_vit import ViT
 from vit_pytorch.mpp import MPP
 from x_transformers import ContinuousTransformerWrapper, Decoder, ViTransformerWrapper, Encoder
-from linear_attention_transformer import LinearAttentionTransformer
-from linear_attention_transformer.autopadder import Autopadder
 
 
 
@@ -173,7 +171,7 @@ class XDecoder(nn.Module):
     def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
-        '''
+
         self.decoder = ContinuousTransformerWrapper(
             max_seq_len = 227,
             attn_layers = Decoder(
@@ -186,17 +184,6 @@ class XDecoder(nn.Module):
             dim_in = emb_dim + 12,
             dim_out = dim,
         )
-        '''
-        self.decoder = LinearAttentionTransformer(
-            dim = dim,
-            depth = depth,
-            max_seq_len = 226,
-            heads = heads,
-            causal = True,
-            receives_context = True,
-            n_local_attn_heads = 4,
-        )
-        self.decoder = Autopadder(self.decoder)
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -257,8 +244,6 @@ class XDecoder(nn.Module):
     
     def forward(self, saml, context=None, mask=None):
         x = self.embed_saml(saml)
-        x = self.post_proj(x)
-        x = self.post_norm(x)
         out = self.decoder(x, context=context, mask=mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
