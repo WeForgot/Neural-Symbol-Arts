@@ -10,8 +10,7 @@ from torch.cuda.amp import GradScaler, autocast
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset, random_split
-from adabelief_pytorch import AdaBelief
+from torch.utils.data import DataLoader, TensorDataset
 
 from tqdm import tqdm
 from model.custom_gmlp import gMLPVision
@@ -341,7 +340,7 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     #train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    #model.encoder.pretrain(train_dataset, valid_dataset, x_settings['patch_size'], x_settings['dim'], device=device)
+    model.encoder.pretrain(train_dataset, valid_dataset, x_settings['patch_size'], x_settings['dim'], device=device)
 
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
