@@ -181,8 +181,9 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.fc = nn.LazyLinear(dim)
-        #self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        #self.fc = nn.LazyLinear(dim)
+        self.avgpool = nn.AdaptiveAvgPool2d((100, dim))
+        self.identity = nn.Identity()
         #self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
@@ -239,9 +240,9 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        #x = self.avgpool(x)
-        x = torch.flatten(x, 2)
-        x = self.fc(x)
+        x = torch.flatten(x, 2).permute(0,2,1)
+        x = self.avgpool(x)
+        x = self.identity(x)
 
         return x
 
@@ -257,6 +258,9 @@ def _resnet(block: Type[Union[BasicBlock, Bottleneck]],
 
 def resnet18(dim: int, **kwargs: Any) -> ResNet:
     return _resnet(BasicBlock, [2, 2, 2, 2], dim)
+
+def resnet50(dim: int, **kwargs: Any) -> ResNet:
+    return _resnet(Bottleneck, [3, 4, 6, 3], dim)
 '''
 def _resnet(
     arch: str,
