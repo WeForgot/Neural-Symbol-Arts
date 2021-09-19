@@ -143,7 +143,6 @@ class XDecoder(nn.Module):
         x = self.embed_saml(saml)
         x = self.proj_norm(self.projection(x))
         out = self.decoder(x, context, tgt_key_padding_mask=~mask)
-        #out = self.decoder(x, context=context, mask=mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -156,15 +155,20 @@ class NeuralTransformer(nn.Module):
         self.col_loss = nn.SmoothL1Loss()
         self.pos_loss = nn.SmoothL1Loss()
     
-    def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
+    def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0, print_log=False):
         enc = self.encoder(src)
+        xi = tgt[:, :-1]
+        xo = tgt[:, 1:]
         mask = torch.ones(tgt.shape[:2]).bool().cuda()
-        mask[0][-1] = False
-        emb_guess, col_guess, pos_guess = self.decoder(tgt, context=enc, mask=mask)
-        emb_guess, col_guess, pos_guess = emb_guess[:, -1:, :], col_guess[:, -1:, :], pos_guess[:, -1:, :]
+        if mask is not None and mask.shape[1] == tgt.shape[1]:
+            mask = mask[:, :-1]
+        emb_guess, col_guess, pos_guess = self.decoder(xi, context=enc, mask=mask)
         if return_loss:
-            emb_target, col_target, pos_target = torch.split(tgt, [1, 4, 8], dim=-1)
-            emb_target, col_target, pos_target = emb_target[:, -1:, :], col_target[:, -1:, :], pos_target[:, -1:, :]
+            emb_target, col_target, pos_target = torch.split(xo, [1, 4, 8], dim=-1)
+            if print_log:
+                print('************************************************')
+                print(pos_guess)
+                print(pos_target)
             emb_loss = self.emb_loss(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
             col_loss = self.col_loss(col_guess, col_target) * col_alpha
             pos_loss = self.pos_loss(pos_guess, pos_target) * pos_alpha
@@ -172,7 +176,7 @@ class NeuralTransformer(nn.Module):
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
-    def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=226, temperature = 1.0, device=None) -> np.ndarray:
+    def generate(self, src: torch.Tensor, vocab: Vocabulary, max_len=226, temperature = 1.0, k=1, device=None) -> np.ndarray:
         if len(src.shape) == 3:
             src = src.unsqueeze(0).to(device)
         context = self.encoder(src)
@@ -180,13 +184,11 @@ class NeuralTransformer(nn.Module):
         eos_token = vocab['<EOS>']
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
             temp = list(out)
-            temp.append([0.0] * 13)
             x = torch.tensor(temp).unsqueeze(0).to(device)
-            mask = mask = torch.ones(x.shape[:2]).bool().cuda()
-            mask[0][-1] = False
+            mask = torch.ones(x.shape[:2]).bool().cuda()
             emb_out, col_out, pos_out = self.decoder(x, context=context, mask=mask)
-            emb_out, col_out, pos_out = emb_out[:, -1:, :], col_out[:, -1:, :], pos_out[:, -1:, :]
-            filtered_logits = top_k_top_p_filtering(emb_out, top_k=1)
+            emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
+            filtered_logits = top_k_top_p_filtering(emb_out, top_k=k)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
@@ -210,7 +212,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 576, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 6, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 64, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 1, 'd_heads': 8, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -271,11 +273,10 @@ def main():
         for ddx, i_batch in enumerate(idxs):
             #img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
             img, saml = train_dataset[i_batch]['feature'].to(device).unsqueeze(0), train_dataset[i_batch]['label'].to(device).unsqueeze(0)
-
             idx = random.choice(list(range(2, len(saml[0]))))
             x = saml[:,:idx]
             with autocast():
-                loss = model(img, x, return_loss=True, emb_alpha=(1/60.)) / accumulate
+                loss = model(img, x, return_loss=True, emb_alpha=(1/60.), print_log=(True if edx > 10 else False)) / accumulate
             scaler.scale(loss).backward()
             batch_loss += loss.item()
 
