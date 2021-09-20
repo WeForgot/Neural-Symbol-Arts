@@ -155,7 +155,7 @@ class NeuralTransformer(nn.Module):
         self.col_loss = nn.SmoothL1Loss()
         self.pos_loss = nn.SmoothL1Loss()
     
-    def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0, print_log=False):
+    def forward(self, src, tgt, mask=None, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
         xi = tgt[:, :-1]
         xo = tgt[:, 1:]
@@ -165,10 +165,6 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(xi, context=enc, mask=mask)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(xo, [1, 4, 8], dim=-1)
-            if print_log:
-                print('************************************************')
-                print(pos_guess)
-                print(pos_target)
             emb_loss = self.emb_loss(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
             col_loss = self.col_loss(col_guess, col_target) * col_alpha
             pos_loss = self.pos_loss(pos_guess, pos_target) * pos_alpha
@@ -212,7 +208,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 64, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 1, 'd_heads': 8, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 384, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 4, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -247,9 +243,9 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-6)
-    #optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum = 0.9, weight_decay = 1e-4)
-    #scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-6)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum = 0.9, weight_decay = 1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, eta_min = 1e-6)
 
     scaler = GradScaler()
 
@@ -276,7 +272,7 @@ def main():
             idx = random.choice(list(range(2, len(saml[0]))))
             x = saml[:,:idx]
             with autocast():
-                loss = model(img, x, return_loss=True, emb_alpha=(1/60.), print_log=(True if edx > 10 else False)) / accumulate
+                loss = model(img, x, return_loss=True, emb_alpha=(1/60.)) / accumulate
             scaler.scale(loss).backward()
             batch_loss += loss.item()
 
@@ -284,7 +280,7 @@ def main():
             if (ddx + 1) % accumulate == 0:
                 scaler.step(optimizer)
                 scaler.update()
-                #scheduler.step()
+                scheduler.step()
                 optimizer.zero_grad()
                 running_loss += batch_loss
                 print('\tBatch #{}, Loss: {}'.format(bdx, batch_loss))
@@ -300,7 +296,7 @@ def main():
             optimizer.zero_grad()
             scaler.step(optimizer)
             scaler.update()
-            #scheduler.step()
+            scheduler.step()
 
         #print('Training Epoch #{}, Loss: {}, LR: {:.4e}'.format(edx, running_loss, scheduler.get_last_lr()[0]))
         print('Training Epoch #{}, Loss: {}'.format(edx, running_loss))
