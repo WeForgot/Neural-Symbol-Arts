@@ -233,14 +233,20 @@ def clamp_array(arr):
 
 
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False, reverse = False) -> np.ndarray:
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 227, clamp_values: bool = False, reverse = False) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
     root = ETO.fromstring(''.join(all_lines))
     pad_line = [vocab['<PAD>']] + [0] * 12
+    start_line = [vocab['<SOS>']] + [0] * 12
+    end_line = [vocab['<EOS>']] + [0] * 12
     saml_lines = []
     saml_mask = []
+    if not reverse:
+        saml_lines.append(start_line)
+    else:
+        saml_lines.append(end_line)
     saml_mask.append(True)
     for ldx, layer in enumerate(root):
         attribs = layer.attrib
@@ -255,7 +261,7 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
                 saml_lines.append(np.asarray(clamp_array(cur_line), dtype=np.float32))
             else:
                 saml_lines.append(np.asarray(cur_line, dtype=np.float32))
-            saml_mask.append(True)
+            saml_mask.append(False)
         if verbose:
             print('Layer #{}'.format(ldx+1))
             print('\tType: {}'.format(layer_type))
@@ -263,17 +269,21 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-    saml_mask.append(True)
+    saml_mask.append(False)
+    if not reverse:
+        saml_lines.append(end_line)
+    else:
+        saml_lines.append(start_line)
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
-        saml_mask.append(False)
+        saml_mask.append(True)
     return np.asarray(saml_lines, dtype=np.float32), np.asarray(saml_mask, dtype=np.bool)
 
 def load_data(dpath = None, should_reverse=False, clamp_values=False) -> Tuple[Vocabulary, list]:
     vocab = Vocabulary()
     print('Reversing SAMLs' if should_reverse else 'SAMLs in place')
     if dpath is None:
-        all_samls = glob.glob(os.path.join('..','data','BetterSymbolArts','processed','*.saml'))
+        all_samls = glob.glob(os.path.join('..','data','processed','*.saml'))
     else:
         all_samls = glob.glob(os.path.join(dpath, '*.saml'))
     data = []

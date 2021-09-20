@@ -16,7 +16,7 @@ from adabelief_pytorch import AdaBelief
 from tqdm import tqdm
 
 #from byol_pytorch import BYOL
-from model.mobilenetv3 import mobilenet_v3_small
+from model.resnet import resnet18
 from model.custom_gmlp import gMLPVision
 from vit_pytorch import Dino
 from model.custom_vit import ViT
@@ -104,13 +104,7 @@ class Mixture(nn.Module):
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads):
         super(XEncoder, self).__init__()
-        self.encoder = gMLPVision(
-            image_size = image_size,
-            patch_size = patch_size,
-            dim = dim,
-            depth = depth,
-            prob_survival = 0.9
-        )
+        self.encoder = resnet18(dim)
         self.to_latent = nn.Identity()
     
     def forward(self, x):
@@ -123,35 +117,9 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         self.dim = dim
 
-        self.pos_embs = nn.parameter.Parameter(torch.zeros((max_seq_len, dim)), requires_grad=False)
-        #self.decoder = ContinuousTransformerWrapper(
-        #    max_seq_len = 225,
-        #    attn_layers = Decoder(
-        #        dim = dim,
-        #        depth = depth,
-        #        heads = heads,
-        #        cross_attend = True,
-        #        cross_only = True
-        #    ),
-        #    dim_out = dim
-        #)
-        self.projection_in = nn.Sequential(
-            Permute(2,1),
-            nn.Linear(784,225),
-            Permute(2,1),
-        )
-        self.decoder = nn.Sequential(*([
-                Mixture(225, dim)
-            for x in range(depth)]))
-            
-        #self.decoder = nn.Sequential(
-        #    Permute(2,1),
-        #    nn.Linear(49,225),
-        #    Permute(2,1),
-        #    nn.Linear(dim, dim),
-        #)
-        self.post_norm = nn.LayerNorm(dim)
-        self.post_drop = nn.Dropout(p=0.2)
+        self.pos_embs = nn.parameter.Parameter(torch.zeros((max_seq_len, dim)), requires_grad=True)
+        decoder_layer = nn.TransformerDecoderLayer(dim, heads, batch_first=True)
+        self.decoder = nn.TransformerDecoder(decoder_layer, depth)
 
         ffc = nn.ModuleList(
             [nn.Sequential(
@@ -198,28 +166,38 @@ class XDecoder(nn.Module):
             nn.Tanh(),
         )
     
-    def forward(self, context):
+    def forward(self, context, mask=None):
         b = context.shape[0]
+        if mask is None:
+            mask = torch.ones((b, self.pos_embs.shape[0])).bool().cuda()
         x = self.pos_embs.repeat(b, 1, 1)
-        out = self.projection_in(context)
-        out = self.decoder(out)
-        #out = self.decoder(x,context=context, return_embeddings=True)
-        #out = self.decoder(x, context = context)
+        out = self.decoder(x, context, tgt_key_padding_mask=~mask)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
+def masked_mse(guess, target, mask):
+    #loss = F.smooth_l1_loss(guess, target)
+    #loss = (loss * mask.float()).sum() # gives \sigma_euclidean over unmasked elements
+    #return loss / loss.sum()
+    out = (guess[mask]-target[mask])**2
+    loss = out.mean()
+    return loss
+
 class NeuralTransformer(nn.Module):
-    def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, d_depth, d_heads, max_seq_len=225):
+    def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, d_depth, d_heads, max_seq_len=227):
         super(NeuralTransformer, self).__init__()
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), max_seq_len, dim, d_depth, d_heads)
     
-    def forward(self, src, labels, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
+    def forward(self, src, labels, mask, return_loss=False, emb_alpha=1.0, col_alpha=1.0, pos_alpha=1.0):
         enc = self.encoder(src)
-        emb_guess, col_guess, pos_guess = self.decoder(enc)
+        emb_guess, col_guess, pos_guess = self.decoder(enc, mask)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            return  F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha + F.smooth_l1_loss(col_guess, col_target) * col_alpha + F.smooth_l1_loss(pos_guess, pos_target) * pos_alpha
+            emb_loss = F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha
+            col_loss = masked_mse(col_guess, col_target, mask) * col_alpha
+            pos_loss = masked_mse(pos_guess, pos_target, mask) * pos_alpha
+            return emb_loss + col_loss + pos_loss
         return torch.cat([emb_guess, col_guess, pos_guess], dim=-1)
     
     @torch.no_grad()
@@ -241,88 +219,10 @@ class NeuralTransformer(nn.Module):
             out.append([emb_idx] + cur_col.tolist() + cur_pos.tolist())
         return np.asarray(out)
 
-def piecewise_decay(epoch, steps, alphas):
-    assert len(steps) == len(alphas), 'In piecewise_decay: Both steps and alphas need to have the same number of elements'
-    steps, alphas = zip(*(sorted(zip(steps, alphas), reverse=True)))
-    for idx in range(len(steps)):
-        if epoch > steps[idx]:
-            return alphas[idx]
-    return 1
-
-def linear_decay(epoch, start, end):
-    return start + min(end, ((end-start)/float(epoch)))
-
-def pretrain_encoder(model: nn.Module, image_size, train_data, valid_data, device, batch_size = 32, max_epochs = 100, max_patience = 5, batch_metrics=True, freeze_best=False):
-    learner = Dino(
-        model,
-        image_size = image_size,
-        hidden_layer= 'to_latent',
-    ).to(device)    
-
-    train_dataloder = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-    valid_dataloader = DataLoader(valid_data, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    opt = optim.AdamW(learner.parameters(), lr=1e-2, weight_decay=0.04)
-    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(opt, T_0 = len(train_dataloder) * 10, eta_min = 1e-6)
-    
-    best_loss = None
-    best_model = None
-    patience = 0
-
-    for edx in range(max_epochs):
-        model.train()
-        learner.train()
-        running_loss = 0.0
-        for bdx, i_batch in enumerate(train_dataloder):
-            img = i_batch['feature'].to(device)
-            loss = learner(img)
-            running_loss += loss.item()
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            learner.update_moving_average()
-            if batch_metrics:
-                print('\tBatch #{}, Loss: {}'.format(bdx, loss.item()))
-            scheduler.step()
-        
-        print('TRAINING Epoch #{}, Total Loss: {}'.format(edx, running_loss))
-
-        model.eval()
-        learner.eval()
-        running_loss = 0.0
-        with torch.no_grad():
-            for bdx, i_batch in enumerate(valid_dataloader):
-                img = i_batch['feature'].to(device)
-                loss = learner(img)
-                running_loss += loss.item()
-        
-        if best_loss is None or running_loss < best_loss:
-            best_loss = running_loss
-            best_model = model.state_dict()
-            patience = 0
-        else:
-            patience += 1
-        
-        print('VALIDATION Epoch #{}, Total Loss: {}, Patience: {}'.format(edx, running_loss, patience))
-
-        if patience > max_patience:
-            print('Out of patience')
-            break
-
-        if best_loss == 0.0:
-            print("We aren't doing any better than this...")
-            break
-    
-    model.load_state_dict(best_model)
-    if freeze_best:
-        for param in model.parameters():
-            param.requires_grad = False
-    return model
-
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 256, 'e_depth': 4, 'e_heads': 12, 'd_depth': 5, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 768, 'e_depth': 4, 'e_heads': 12, 'd_depth': 7, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -365,8 +265,8 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
 
     # With AdamW
-    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-4)
-    #optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
     scaler = GradScaler()
@@ -375,12 +275,12 @@ def main():
         running_loss = 0
         model.train()
         for bdx, i_batch in enumerate(train_dataloader):
-            img, saml = i_batch['feature'].to(device), i_batch['label'].to(device)
+            img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
             loss = 0
             optimizer.zero_grad()
 
             with autocast():
-                loss = model(img, saml, return_loss=True)
+                loss = model(img, saml, mask, return_loss=True, emb_alpha=(1/60.0))
 
             running_loss += loss.item()
             scaler.scale(loss).backward()
@@ -400,8 +300,8 @@ def main():
 
         with torch.no_grad():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
-                img, saml = i_batch['feature'].to(device), i_batch['label'].to(device)
-                running_loss += model(img, saml, return_loss=True).item()
+                img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
+                running_loss += model(img, saml, mask, return_loss=True, emb_alpha=(1/60.0)).item()
                     
                 
         
