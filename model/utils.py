@@ -54,11 +54,6 @@ def get_parameter_count(model: nn.Module):
     u_params = sum([np.prod(p.size()) for p in u_model_parameters])
     return t_params, u_params
 
-def load_data(base_path, weights):
-    bases = [os.path.split(x)[-1][:-5] for x in glob.glob(os.path.join(base_path, '*.saml'))]
-    dataset = SADataset(bases, weights)
-    return dataset
-
 def load_weights(weight_fp, names_fp):
     file_to_weight = {}
     with open(weight_fp, 'r') as wf, open(names_fp, 'r') as rf:
@@ -112,13 +107,11 @@ def convert_numpy_to_saml(data, vocab, dest_path=None, name='Test', values_clamp
         f.write('<?xml version="1.0" encoding="utf-8"?>\n')
         saml_lines = []
         for line in data:
-            if vocab[int(line[0])] == '<SOS>' or vocab[int(line[0])] == '<PAD>':
+            if vocab[int(line[0])] == '<PAD>' or vocab[int(line[0])] == '<EOS>' or vocab[int(line[0])] == '<SOS>':
                 continue
-            elif vocab[int(line[0])] == '<EOS>':
-                break
             else:
                 saml_lines.append(line)
-        saml_lines.reverse()
+        #saml_lines.reverse()
         xml_data = ET.Element('sa')
         #sa name="さっきゅん" visible="true" version="1" author="10716288" width="192" height="96" sound="3"
         xml_data.set('name', name)
@@ -233,21 +226,14 @@ def clamp_array(arr):
 
 
 
-def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 227, clamp_values: bool = False, reverse = False) -> np.ndarray:
+def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_length = 225, clamp_values: bool = False, reverse = False) -> np.ndarray:
     with open(saml_path, 'r', encoding='utf-8-sig') as f:
         all_lines = [x for x in f.readlines()]
         _ = all_lines.pop(1) # This isn't valid XML so scrap it
     root = ETO.fromstring(''.join(all_lines))
     pad_line = [vocab['<PAD>']] + [0] * 12
-    start_line = [vocab['<SOS>']] + [0] * 12
-    end_line = [vocab['<EOS>']] + [0] * 12
     saml_lines = []
     saml_mask = []
-    if not reverse:
-        saml_lines.append(start_line)
-    else:
-        saml_lines.append(end_line)
-    saml_mask.append(True)
     for ldx, layer in enumerate(root):
         attribs = layer.attrib
         layer_type = attribs['type']
@@ -269,11 +255,6 @@ def convert_saml(saml_path: str, vocab: Vocabulary, verbose: bool = False, max_l
             print('\tAlpha: {}'.format(alpha))
             print('\tLeft Coords: {},{}'.format((ltx, lty),(lbx, lby)))
             print('\tRight Coords: {},{}'.format((rtx, rty),(rbx, rby)))
-    saml_mask.append(False)
-    if not reverse:
-        saml_lines.append(end_line)
-    else:
-        saml_lines.append(start_line)
     while len(saml_lines) < max_length:
         saml_lines.append(pad_line)
         saml_mask.append(True)

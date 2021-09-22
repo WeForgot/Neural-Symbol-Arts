@@ -16,7 +16,7 @@ from adabelief_pytorch import AdaBelief
 from tqdm import tqdm
 
 #from byol_pytorch import BYOL
-from model.resnet import resnet18
+from model.resnet import resnet18, resnet50
 from model.custom_gmlp import gMLPVision
 from vit_pytorch import Dino
 from model.custom_vit import ViT
@@ -82,32 +82,24 @@ class Permute(nn.Module):
     def forward(self, x):
         return x.permute(*self.permutation)
 
-class Mixture(nn.Module):
-    def __init__(self, width, depth, act=None):
-        super(Mixture, self).__init__()
-        act = act if act is not None else nn.ReLU
-        self.seq = nn.Sequential(
-            Permute(2,1),
-            nn.Linear(width, width),
-            nn.LayerNorm(width),
-            act(),
-            Permute(2,1),
-            nn.Linear(depth, depth),
-            nn.LayerNorm(depth),
-            act(),
-        )
-    
-    def forward(self, x):
-        return self.seq(x)
-
 # Model classes
 class XEncoder(nn.Module):
-    def __init__(self, image_size, patch_size, dim, depth, heads):
+    def __init__(self, image_size, patch_size, dim, depth, heads, pool_dim=256):
         super(XEncoder, self).__init__()
-        self.encoder = resnet18(dim)
+        self.backbone = resnet50(dim)
+        self.reduction = nn.AdaptiveAvgPool2d((pool_dim, pool_dim))
+        self.projection = nn.Linear(pool_dim, dim)
+        encoder_layer = nn.TransformerEncoderLayer(dim, heads, batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, depth)
+        self.pos_emb = nn.Embedding(pool_dim, dim)
         self.to_latent = nn.Identity()
     
     def forward(self, x):
+        b = x.shape[0]
+        x = self.backbone(x)
+        x = self.reduction(x)
+        x = self.projection(x)
+        x = x + self.pos_emb.weight.repeat(b, 1, 1)
         x = self.encoder(x)
         return self.to_latent(x)
 
@@ -117,74 +109,41 @@ class XDecoder(nn.Module):
         self.max_seq_len = max_seq_len
         self.dim = dim
 
-        self.pos_embs = nn.parameter.Parameter(torch.zeros((max_seq_len, dim)), requires_grad=True)
+        self.pos_embs = nn.Embedding(max_seq_len, dim)
         decoder_layer = nn.TransformerDecoderLayer(dim, heads, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, depth)
 
-        ffc = nn.ModuleList(
-            [nn.Sequential(
-                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
-                nn.GELU(),
-                nn.Dropout(0.1)
-            )
-            for _ in range(2)]
-        )
-
         self.to_classes = nn.Sequential(
-            nn.Linear(dim, dim*ff_mult),
-            *ffc,
-            nn.Linear(dim*ff_mult, num_layers),
+            PreNorm(dim, Residual(nn.Linear(dim, dim))),
+            nn.Linear(dim, num_layers)
         )
 
-        ffl = nn.ModuleList(
-            [nn.Sequential(
-                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
-                nn.GELU(),
-                nn.Dropout(0.1)
-            )
-            for _ in range(2)]
-        )
-        self.to_colors = nn.Sequential(
-            nn.Linear(dim, dim*ff_mult),
-            *ffl,
-            nn.Linear(dim*ff_mult, ff_mult),
-            nn.Sigmoid(),
-        )
+        self.to_colors = nn.Linear(dim, ff_mult)
 
-        ffp = nn.ModuleList(
-                [nn.Sequential(
-                PreNorm(dim*ff_mult, Residual(nn.Linear(dim*ff_mult, dim*ff_mult))),
-                nn.GELU(),
-                nn.Dropout(0.1)
-            )
-            for _ in range(2)]
-        )
-        self.to_positions = nn.Sequential(
-            nn.Linear(dim, dim*ff_mult),
-            *ffp,
-            nn.Linear(dim*ff_mult, 8),
-            nn.Tanh(),
-        )
+        self.to_positions = nn.Linear(dim, 8)
     
     def forward(self, context, mask=None):
         b = context.shape[0]
         if mask is None:
-            mask = torch.ones((b, self.pos_embs.shape[0])).bool().cuda()
-        x = self.pos_embs.repeat(b, 1, 1)
-        out = self.decoder(x, context, tgt_key_padding_mask=~mask)
-        emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
+            mask = torch.zeros((b, context.shape[0])).bool().cuda()
+        x = self.pos_embs.weight.repeat(b, 1, 1)
+        out = self.decoder(x, context)
+        emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out).sigmoid(), self.to_positions(out).tanh()
         return emb_guess, col_guess, pos_guess
 
 def masked_mse(guess, target, mask):
-    #loss = F.smooth_l1_loss(guess, target)
-    #loss = (loss * mask.float()).sum() # gives \sigma_euclidean over unmasked elements
-    #return loss / loss.sum()
     out = (guess[mask]-target[mask])**2
     loss = out.mean()
     return loss
 
+def focal_loss(guess, target, gamma=2):
+    ce_loss = F.cross_entropy(guess, target) 
+    pt = torch.exp(-ce_loss)
+    focal_loss = ((1 - pt) ** gamma * ce_loss).mean()
+    return focal_loss
+
 class NeuralTransformer(nn.Module):
-    def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, d_depth, d_heads, max_seq_len=227):
+    def __init__(self, image_size, patch_size, dim, e_depth, e_heads, vocab, d_depth, d_heads, max_seq_len=225):
         super(NeuralTransformer, self).__init__()
         self.encoder = XEncoder(image_size, patch_size, dim, e_depth, e_heads)
         self.decoder = XDecoder(len(vocab), max_seq_len, dim, d_depth, d_heads)
@@ -194,7 +153,7 @@ class NeuralTransformer(nn.Module):
         emb_guess, col_guess, pos_guess = self.decoder(enc, mask)
         if return_loss:
             emb_target, col_target, pos_target = torch.split(labels, [1, 4, 8], dim=-1)
-            emb_loss = F.cross_entropy(emb_guess.transpose(1,2), emb_target.squeeze(-1).long(), ignore_index=0) * emb_alpha
+            emb_loss = focal_loss(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
             col_loss = masked_mse(col_guess, col_target, mask) * col_alpha
             pos_loss = masked_mse(pos_guess, pos_target, mask) * pos_alpha
             return emb_loss + col_loss + pos_loss
@@ -210,19 +169,18 @@ class NeuralTransformer(nn.Module):
         out = []
         for idx in range(emb_out.shape[1]):
             cur_emb, cur_col, cur_pos = emb_out[0, idx], col_out[0, idx], pos_out[0, idx]
-            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=3)
+            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=1)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
-            if emb_idx == 0:
-                break
             out.append([emb_idx] + cur_col.tolist() + cur_pos.tolist())
         return np.asarray(out)
 
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 768, 'e_depth': 4, 'e_heads': 12, 'd_depth': 7, 'd_heads': 12, 'clamped_values': True}
+    #x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 768, 'e_depth': 4, 'e_heads': 12, 'd_depth': 7, 'd_heads': 12, 'clamped_values': True} # GPT-2 style
+    x_settings = {'image_size': 576, 'patch_size': 8, 'dim': 120, 'e_depth': 1, 'e_heads': 12, 'd_depth': 1, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -260,12 +218,10 @@ def main():
     train_dataset, valid_dataset = SADataset(train_split, img_size=x_settings['image_size']), SADataset(valid_split, img_size=x_settings['image_size'])
     train_dataloader, valid_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True), DataLoader(valid_dataset, batch_size=batch_size)
 
-    #model.encoder = pretrain_encoder(model.encoder, x_settings['image_size'], train_dataset, valid_dataset, device, max_patience=20)
-
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
+    print('Total data points:\n\tTraining: {}\n\tValidation: {}'.format(len(train_split), len(valid_split)))
 
-    # With AdamW
-    #optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-4)
+    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
@@ -280,7 +236,7 @@ def main():
             optimizer.zero_grad()
 
             with autocast():
-                loss = model(img, saml, mask, return_loss=True, emb_alpha=(1/60.0))
+                loss = model(img, saml, mask, return_loss=True)
 
             running_loss += loss.item()
             scaler.scale(loss).backward()
@@ -301,7 +257,7 @@ def main():
         with torch.no_grad():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                running_loss += model(img, saml, mask, return_loss=True, emb_alpha=(1/60.0)).item()
+                running_loss += model(img, saml, mask, return_loss=True).item()
                     
                 
         
