@@ -15,6 +15,8 @@ from adabelief_pytorch import AdaBelief
 
 from tqdm import tqdm
 
+from torchvision.utils import save_image
+
 #from byol_pytorch import BYOL
 from model.resnet import resnet18, resnet50
 from model.custom_gmlp import gMLPVision
@@ -57,31 +59,6 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
         logits[indices_to_remove] = filter_value
     return logits
 
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super(PreNorm, self).__init__()
-        self.norm = nn.LayerNorm(normalized_shape=dim)
-        self.fn = fn
-    
-    def forward(self, x):
-        return self.fn(self.norm(x))
-
-class Residual(nn.Module):
-    def __init__(self, fn):
-        super(Residual, self).__init__()
-        self.fn = fn
-    
-    def forward(self, x):
-        return self.fn(x) + x
-
-class Permute(nn.Module):
-    def __init__(self, *args):
-        super(Permute, self).__init__()
-        self.permutation = [0, *args]
-    
-    def forward(self, x):
-        return x.permute(*self.permutation)
-
 # Model classes
 class XEncoder(nn.Module):
     def __init__(self, image_size, patch_size, dim, depth, heads, pool_dim=256):
@@ -104,7 +81,7 @@ class XEncoder(nn.Module):
         return self.to_latent(x)
 
 class XDecoder(nn.Module):
-    def __init__(self, num_layers, max_seq_len, dim, depth, heads, ff_mult=4):
+    def __init__(self, num_layers, max_seq_len, dim, depth, heads, ff_mult=1):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
         self.dim = dim
@@ -113,14 +90,33 @@ class XDecoder(nn.Module):
         decoder_layer = nn.TransformerDecoderLayer(dim, heads, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, depth)
 
-        self.to_classes = nn.Sequential(
-            PreNorm(dim, Residual(nn.Linear(dim, dim))),
-            nn.Linear(dim, num_layers)
+        self.to_classes = nn.Linear(dim, num_layers)
+
+        self.to_colors = nn.Sequential(
+            *(
+                [
+                    nn.Sequential(
+                        nn.Linear(dim, dim),
+                        nn.LayerNorm(dim),
+                    )
+                    for _ in range(3)
+                ]
+            ),
+            nn.Linear(dim, 4)
         )
 
-        self.to_colors = nn.Linear(dim, ff_mult)
-
-        self.to_positions = nn.Linear(dim, 8)
+        self.to_positions = nn.Sequential(
+            *(
+                [
+                    nn.Sequential(
+                        nn.Linear(dim, dim),
+                        nn.LayerNorm(dim),
+                    )
+                    for _ in range(3)
+                ]
+            ),
+            nn.Linear(dim, 8)
+        )
     
     def forward(self, context, mask=None):
         b = context.shape[0]
@@ -132,7 +128,7 @@ class XDecoder(nn.Module):
         return emb_guess, col_guess, pos_guess
 
 def masked_mse(guess, target, mask):
-    out = (guess[mask]-target[mask])**2
+    out = (guess[~mask]-target[~mask])**2
     loss = out.mean()
     return loss
 
@@ -180,7 +176,7 @@ class NeuralTransformer(nn.Module):
 # The main function
 def main():
     #x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 768, 'e_depth': 4, 'e_heads': 12, 'd_depth': 7, 'd_heads': 12, 'clamped_values': True} # GPT-2 style
-    x_settings = {'image_size': 576, 'patch_size': 8, 'dim': 120, 'e_depth': 1, 'e_heads': 12, 'd_depth': 1, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 576, 'patch_size': 8, 'dim': 768, 'e_depth': 1, 'e_heads': 12, 'd_depth': 1, 'd_heads': 12, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
@@ -221,8 +217,8 @@ def main():
     print('Total model parameters:\n\tTrainable: {}\n\tUntrainable: {}'.format(*(get_parameter_count(model))))
     print('Total data points:\n\tTraining: {}\n\tValidation: {}'.format(len(train_split), len(valid_split)))
 
-    #optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 1e-4)
-    optimizer = optim.SGD(model.parameters(), lr=1e-2, weight_decay = 1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay = 1e-4)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-2)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader)*10, eta_min = 1e-6)
 
     scaler = GradScaler()
@@ -236,7 +232,7 @@ def main():
             optimizer.zero_grad()
 
             with autocast():
-                loss = model(img, saml, mask, return_loss=True)
+                loss = model(img, saml, mask, return_loss=True, emb_alpha=(1/60.0))
 
             running_loss += loss.item()
             scaler.scale(loss).backward()
