@@ -313,7 +313,8 @@ def main():
         with torch.no_grad():
             for bdx, i_batch in enumerate(tqdm(valid_dataloader, desc='Validation', leave=False)):
                 img, saml, mask = i_batch['feature'].to(device), i_batch['label'].to(device), i_batch['mask'].to(device)
-                running_loss += model(img, saml, mask, return_loss=True).item()
+                with autocast():
+                    running_loss += model(img, saml, mask, return_loss=True).item()
                     
                 
         
