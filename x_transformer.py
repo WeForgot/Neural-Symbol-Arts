@@ -225,7 +225,7 @@ class NeuralTransformer(nn.Module):
         out = []
         for idx in range(emb_out.shape[1]):
             cur_emb, cur_col, cur_pos = emb_out[0, idx], col_out[0, idx], pos_out[0, idx]
-            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=3)
+            filtered_logits = top_k_top_p_filtering(cur_emb, top_k=1)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
             emb_idx = sample.item()
