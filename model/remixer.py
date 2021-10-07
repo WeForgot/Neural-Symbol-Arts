@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class RemixerBlock(nn.Module):
-    def __init__(self, seq_len, dim):
+    def __init__(self, seq_len, dim, use_geglu=False):
         super().__init__()
         self.pre_glu = nn.Linear(dim, dim*2)
         self.gelu = nn.GELU()
@@ -13,13 +13,18 @@ class RemixerBlock(nn.Module):
 
         nn.init.xavier_uniform_(self.memory)
         nn.init.uniform_(self.alpha)
+
+        self.use_geglu = use_geglu
         
     def forward(self, x):
-        x = self.pre_glu(x)
-        x1, x2 = x.chunk(2, dim=-1)
-        x1 = self.gelu(x1)
-        x = torch.cat([x1, x2], dim=-1)
-        x = F.glu(x)
+        if self.use_geglu:
+            x = self.pre_glu(x)
+            x1, x2 = x.chunk(2, dim=-1)
+            x1 = self.gelu(x1)
+            x = torch.cat([x1, x2], dim=-1)
+            x = F.glu(x)
+        else:
+            x = F.softmax(x, dim=-1).square()
         gr = self.memory.softmax(dim=-1)
         gr = x * gr
         dt = x * gr
