@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from tqdm import tqdm
 from model.resnet import resnet18
+from perceiver_pytorch import PerceiverIO
 
 from model.datasets import SADataset
 from model.utils import Vocabulary, convert_numpy_to_saml, get_parameter_count, load_data, load_image, get_cosine_with_hard_restarts_schedule_with_warmup
@@ -77,12 +78,22 @@ class XEncoder(nn.Module):
         return self.to_latent(x)
 
 class XDecoder(nn.Module):
-    def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=2):
+    def __init__(self, num_layers, emb_dim, max_seq_len, dim, depth, heads, ff_mult=2, final_depth=1):
         super(XDecoder, self).__init__()
         self.max_seq_len = max_seq_len
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model = dim, nhead = heads, batch_first = True)
-        self.decoder = nn.TransformerDecoder(decoder_layer, depth)
+        self.decoder = PerceiverIO(
+            dim = dim,
+            queries_dim = dim,
+            logits_dim = dim,
+            depth = depth,
+            num_latents = 256,
+            latent_dim = 512,
+            cross_heads = 4,
+            latent_heads = 8,
+            cross_dim_head = 64,
+            latent_dim_head = 64
+        )
 
 
         self.embedding = nn.Embedding(num_embeddings=num_layers, embedding_dim=emb_dim)
@@ -139,10 +150,10 @@ class XDecoder(nn.Module):
         x = self.embedding(x.long()).squeeze(2)
         return torch.cat([x, y], dim=-1)
     
-    def forward(self, saml, context=None, mask=None):
+    def forward(self, saml, context=None):
         x = self.embed_saml(saml)
         x = self.proj_norm(self.projection(x))
-        out = self.decoder(x, context, tgt_key_padding_mask=~mask)
+        out = self.decoder(context, queries = x)
         emb_guess, col_guess, pos_guess = self.to_classes(out), self.to_colors(out), self.to_positions(out)
         return emb_guess, col_guess, pos_guess
 
@@ -159,12 +170,11 @@ class NeuralTransformer(nn.Module):
         enc = self.encoder(src)
         xi = tgt[:, :-1]
         xo = tgt[:, 1:]
-        mask = torch.ones(tgt.shape[:2]).bool().cuda()
-        if mask is not None and mask.shape[1] == tgt.shape[1]:
-            mask = mask[:, :-1]
-        emb_guess, col_guess, pos_guess = self.decoder(xi, context=enc, mask=mask)
+        emb_guess, col_guess, pos_guess = self.decoder(xi, context=enc)
         if return_loss:
+            emb_guess, col_guess, pos_guess = emb_guess[:, -1:, :], col_guess[:, -1:, :], pos_guess[:, -1:, :]
             emb_target, col_target, pos_target = torch.split(xo, [1, 4, 8], dim=-1)
+            emb_target, col_target, pos_target = emb_target[:, -1:, :], col_target[:, -1:, :], pos_target[:, -1:, :]
             emb_loss = self.emb_loss(emb_guess.transpose(1,2), emb_target.squeeze(-1).long()) * emb_alpha
             col_loss = self.col_loss(col_guess, col_target) * col_alpha
             pos_loss = self.pos_loss(pos_guess, pos_target) * pos_alpha
@@ -181,8 +191,7 @@ class NeuralTransformer(nn.Module):
         while len(out) < max_len: # + 3 for <SOS>, <EOS> and to loop the right amount of times
             temp = list(out)
             x = torch.tensor(temp).unsqueeze(0).to(device)
-            mask = torch.ones(x.shape[:2]).bool().cuda()
-            emb_out, col_out, pos_out = self.decoder(x, context=context, mask=mask)
+            emb_out, col_out, pos_out = self.decoder(x, context=context)
             emb_out, col_out, pos_out = emb_out[:, -1, :], col_out[:, -1, :], pos_out[:, -1, :]
             filtered_logits = top_k_top_p_filtering(emb_out, top_k=k)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
@@ -208,7 +217,7 @@ def linear_decay(epoch, start, end):
 
 # The main function
 def main():
-    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 384, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 4, 'd_heads': 12, 'clamped_values': True}
+    x_settings = {'image_size': 224, 'patch_size': 8, 'dim': 64, 'e_depth': 1, 'e_heads': 8, 'emb_dim': 4, 'd_depth': 1, 'd_heads': 8, 'clamped_values': True}
     debug = False # Debugging your model on CPU is leagues easier
     if debug:
         device = torch.device('cpu')
