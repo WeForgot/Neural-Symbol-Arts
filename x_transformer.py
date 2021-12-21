@@ -278,6 +278,8 @@ def main():
         for ddx, i_batch in enumerate(idxs):
             #img, saml = i_batch['feature'].to(device).unsqueeze(0), i_batch['label'].to(device).unsqueeze(0)
             img, saml = train_dataset[i_batch]['feature'].to(device).unsqueeze(0), train_dataset[i_batch]['label'].to(device).unsqueeze(0)
+            if len(saml[0]) < 3:
+                continue
             idx = random.choice(list(range(2, len(saml[0]))))
             x = saml[:,:idx]
             with autocast():
